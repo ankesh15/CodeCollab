@@ -1,0 +1,93 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quality-and-test:
+    name: Code Quality & Automated Test Suites
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: codecollab_user
+          POSTGRES_PASSWORD: codecollab_dev_pass
+          POSTGRES_DB: codecollab_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20 Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Build Shared Workspaces
+        run: npm run build --workspace=packages/shared
+
+      - name: TypeScript Strict Type-Check Audit
+        run: npm run type-check
+
+      - name: ESLint Code Standard Verification
+        run: npm run lint
+
+      - name: Generate Prisma ORM Client & Setup Test DB Schema
+        env:
+          DATABASE_URL: postgresql://codecollab_user:codecollab_dev_pass@localhost:5432/codecollab_db?schema=public
+        run: |
+          npm run db:generate --workspace=apps/server
+          npx prisma db push --schema=apps/server/prisma/schema.prisma
+          npx ts-node --cwd apps/server prisma/seed.ts
+
+      - name: Compile Monorepo Production Builds
+        run: npm run build
+
+      - name: Execute Automated Verification Test Suites
+        env:
+          DATABASE_URL: postgresql://codecollab_user:codecollab_dev_pass@localhost:5432/codecollab_db?schema=public
+          JWT_SECRET: ci_test_super_secret_jwt_key_at_least_32_chars_long!
+          NODE_ENV: test
+          PORT: 5000
+          CORS_ORIGIN: http://localhost:5173
+        run: |
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-db.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-auth.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-socket.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-editor.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-submission.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-chat.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-notifications.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-analytics.ts
+          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-security.ts
+
+  docker-build:
+    name: Validate Multi-Stage Docker Builds
+    runs-on: ubuntu-latest
+    needs: quality-and-test
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Build Server Container Image
+        run: docker build -t codecollab-server:ci -f apps/server/Dockerfile .
+
+      - name: Build Web Container Image
+        run: docker build -t codecollab-web:ci -f apps/web/Dockerfile .

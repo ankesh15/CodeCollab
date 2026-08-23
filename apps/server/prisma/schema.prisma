@@ -1,0 +1,237 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ProblemSource {
+  INTERNAL
+  CODEFORCES
+}
+
+enum ProblemStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum RoomRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProblemDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SubmissionStatus {
+  QUEUED
+  RUNNING
+  ACCEPTED
+  WRONG_ANSWER
+  COMPILATION_ERROR
+  RUNTIME_ERROR
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+  SYSTEM_ERROR
+}
+
+enum NotificationType {
+  ROOM_INVITE
+  SUBMISSION_RESULT
+  SYSTEM_ANNOUNCEMENT
+  ROOM_MESSAGE_MENTION
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  avatar       String?
+  bio          String?
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  ownedRooms      Room[]         @relation("RoomOwner")
+  roomMemberships RoomMember[]
+  submissions     Submission[]
+  messages        Message[]
+  notifications   Notification[]
+
+  @@index([username])
+  @@index([email])
+  @@map("users")
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  name        String
+  ownerId     String
+  language    String   @default("javascript")
+  currentCode String   @default("// Start coding here\n") @db.Text
+  isPrivate   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  owner        User          @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members      RoomMember[]
+  submissions  Submission[]
+  messages     Message[]
+  codeDocument CodeDocument?
+
+  @@index([ownerId])
+  @@index([isPrivate, createdAt])
+  @@map("rooms")
+}
+
+model CodeDocument {
+  id        String   @id @default(uuid())
+  roomId    String   @unique
+  content   String   @default("") @db.Text
+  language  String   @default("cpp")
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("code_documents")
+}
+
+model RoomMember {
+  id       String   @id @default(uuid())
+  roomId   String
+  userId   String
+  role     RoomRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  // Relationships
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId, role])
+  @@map("room_members")
+}
+
+model Problem {
+  id             String            @id @default(uuid())
+  title          String            @unique
+  description    String            @db.Text
+  difficulty     ProblemDifficulty
+  constraints    String            @db.Text
+  inputFormat    String            @db.Text
+  outputFormat   String            @db.Text
+  source         ProblemSource     @default(INTERNAL)
+  sourceId       String?
+  sourceUrl      String?
+  externalRating Int?
+  status         ProblemStatus     @default(PUBLISHED)
+  tags           String[]          @default([])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  // Relationships
+  testCases   TestCase[]
+  submissions Submission[]
+
+  @@unique([source, sourceId])
+  @@index([difficulty])
+  @@index([source])
+  @@index([createdAt])
+  @@map("problems")
+}
+
+model TestCase {
+  id             String   @id @default(uuid())
+  problemId      String
+  input          String   @db.Text
+  expectedOutput String   @db.Text
+  isHidden       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  // Relationships
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId, isHidden])
+  @@map("test_cases")
+}
+
+model Submission {
+  id            String           @id @default(uuid())
+  userId        String
+  problemId     String
+  roomId        String?
+  language      String
+  sourceCode    String           @db.Text
+  status        SubmissionStatus @default(QUEUED)
+  executionTime Float?
+  memoryUsed    Float?
+  createdAt     DateTime         @default(now())
+
+  // Relationships
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  room    Room?   @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, status])
+  @@index([problemId, status])
+  @@index([roomId, createdAt])
+  @@index([roomId, status])
+  @@map("submissions")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  // Relationships
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@map("messages")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  message   String           @db.Text
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+  @@map("notifications")
+}
