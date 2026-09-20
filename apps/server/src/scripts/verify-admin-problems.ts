@@ -12,8 +12,16 @@ interface TestResponse {
     success?: boolean;
     message?: string;
     error?: string;
-    errors?: Array<{ field: string; message: string }>;
-    data?: any;
+    data?: {
+      problemId?: string;
+      testCaseId?: string;
+      status?: string;
+      problem?: {
+        testCases?: Array<{ id: string; isHidden?: boolean }>;
+      };
+      problems?: Array<{ id: string }>;
+      [key: string]: unknown;
+    };
   };
 }
 
@@ -215,7 +223,7 @@ async function verifyAdminProblemsSystem() {
     console.log('9️⃣ Testing Public Problem List Excludes Drafts...');
     const publicListRes = await makeRequest('GET', '/api/problems');
     const draftFound = publicListRes.body.data?.problems?.some(
-      (p: any) => p.id === createdProblemId
+      (p) => p.id === createdProblemId
     );
     if (draftFound) {
       throw new Error('SECURITY VIOLATION: Draft problem is visible in public /api/problems!');
@@ -255,7 +263,7 @@ async function verifyAdminProblemsSystem() {
     console.log('1️⃣2️⃣ Testing Public List Includes Published Problem...');
     const publicListPublishedRes = await makeRequest('GET', '/api/problems');
     const publishedFound = publicListPublishedRes.body.data?.problems?.some(
-      (p: any) => p.id === createdProblemId
+      (p) => p.id === createdProblemId
     );
     if (!publishedFound) {
       throw new Error('Published problem should be visible in public /api/problems!');
@@ -269,7 +277,7 @@ async function verifyAdminProblemsSystem() {
       throw new Error(`Public detail fetch failed.`);
     }
     const publicTcs = publicDetailRes.body.data?.problem?.testCases || [];
-    const hasHiddenExposed = publicTcs.some((tc: any) => tc.isHidden === true);
+    const hasHiddenExposed = publicTcs.some((tc) => tc.isHidden === true);
     if (hasHiddenExposed) {
       throw new Error('SECURITY VIOLATION: Hidden test cases exposed in public /api/problems/:id!');
     }

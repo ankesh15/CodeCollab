@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
 import {
   CodeforcesProblemCandidate,
@@ -282,9 +283,12 @@ class ProblemImportService {
           title: uniqueTitle,
           status: 'IMPORTED',
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Handle race conditions or duplicate title unique violations
-        if (err.code === 'P2002') {
+        const isUniqueViolation =
+          err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+
+        if (isUniqueViolation) {
           skippedCount++;
           results.push({
             sourceId,
@@ -298,7 +302,7 @@ class ProblemImportService {
             sourceId,
             title: raw.name,
             status: 'FAILED',
-            reason: err.message || 'Database insert failed',
+            reason: err instanceof Error ? err.message : 'Database insert failed',
           });
         }
       }

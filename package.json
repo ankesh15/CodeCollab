@@ -19,7 +19,8 @@
     "db:down": "docker compose down",
     "db:generate": "npm run db:generate --workspace=apps/server",
     "db:migrate": "npm run db:migrate --workspace=apps/server",
-    "db:studio": "npm run db:studio --workspace=apps/server"
+    "db:studio": "npm run db:studio --workspace=apps/server",
+    "postinstall": "node -e \"if (require('fs').existsSync('apps/server/prisma/schema.prisma')) { require('child_process').execSync('npm run db:generate', { stdio: 'inherit' }); }\""
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.18.0",

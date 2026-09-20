@@ -39,6 +39,9 @@ jobs:
       - name: Install Monorepo Dependencies
         run: npm ci
 
+      - name: Generate Prisma ORM Client
+        run: npm run db:generate
+
       - name: Build Shared Workspaces
         run: npm run build --workspace=packages/shared
 
@@ -48,11 +51,10 @@ jobs:
       - name: ESLint Code Standard Verification
         run: npm run lint
 
-      - name: Generate Prisma ORM Client & Setup Test DB Schema
+      - name: Setup Test DB Schema & Seed Data
         env:
           DATABASE_URL: postgresql://codecollab_user:codecollab_dev_pass@localhost:5432/codecollab_db?schema=public
         run: |
-          npm run db:generate --workspace=apps/server
           npx prisma db push --schema=apps/server/prisma/schema.prisma
           npx ts-node --cwd apps/server prisma/seed.ts
 

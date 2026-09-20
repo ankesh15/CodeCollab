@@ -81,8 +81,8 @@ export const AdminProblemImportPage: React.FC = () => {
       setCandidates(data.problems);
       setTotalFound(data.totalCount);
       setSelectedIds(new Set());
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to fetch candidate problems from server');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to fetch candidate problems from server');
     } finally {
       setIsFetching(false);
     }
@@ -141,8 +141,8 @@ export const AdminProblemImportPage: React.FC = () => {
       setImportResult(data);
       // Refresh candidates table after import
       await handleFetch();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to import problems');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to import problems');
     } finally {
       setIsImporting(false);
     }
@@ -207,7 +207,9 @@ export const AdminProblemImportPage: React.FC = () => {
               <label className="block text-xs font-medium text-slate-600 mb-1">Difficulty / Rating</label>
               <select
                 value={difficultyFilter}
-                onChange={(e) => setDifficultyFilter(e.target.value as any)}
+                onChange={(e) =>
+                  setDifficultyFilter(e.target.value as 'ALL' | 'EASY' | 'MEDIUM' | 'HARD')
+                }
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="ALL">All Ratings</option>

@@ -8,13 +8,25 @@ const BASE_URL = `http://localhost:${API_PORT}`;
 
 interface HttpResponse {
   status: number;
-  body: any;
+  body: {
+    success?: boolean;
+    message?: string;
+    error?: string;
+    data?: {
+      problemId?: string;
+      token?: string;
+      status?: string;
+      problems?: Array<{ id: string }>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
 }
 
 function makeRequest(
   method: string,
   path: string,
-  body?: any,
+  body?: Record<string, unknown>,
   token?: string
 ): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
@@ -201,7 +213,7 @@ async function verifyAdminRoleSystem() {
     console.log('9️⃣ Testing Draft Problem Visibility in Public Library...');
     const publicListAfterDraft = await makeRequest('GET', '/api/problems', undefined, userToken);
     const foundDraft = (publicListAfterDraft.body.data?.problems || []).find(
-      (p: any) => p.id === testProblemId
+      (p) => p.id === testProblemId
     );
     if (foundDraft) {
       throw new Error('Draft problem is incorrectly visible to normal user in public list!');
@@ -266,7 +278,7 @@ async function verifyAdminRoleSystem() {
     console.log('1️⃣3️⃣ Testing Published Problem Visibility to Normal User...');
     const publicListAfterPub = await makeRequest('GET', '/api/problems', undefined, userToken);
     const foundPublished = (publicListAfterPub.body.data?.problems || []).find(
-      (p: any) => p.id === testProblemId
+      (p) => p.id === testProblemId
     );
     if (!foundPublished) {
       throw new Error('Published problem is NOT visible to normal user in public list!');

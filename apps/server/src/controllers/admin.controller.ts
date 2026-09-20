@@ -35,11 +35,11 @@ export async function getCodeforcesCandidateProblemsController(
       data,
       timestamp: new Date().toISOString(),
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Codeforces Fetch Controller Error]:', err);
     res.status(502).json({
       success: false,
-      message: err.message || 'Failed to fetch candidate problems from Codeforces API',
+      message: err instanceof Error ? err.message : 'Failed to fetch candidate problems from Codeforces API',
       error: 'BAD_GATEWAY',
       timestamp: new Date().toISOString(),
     });
@@ -97,11 +97,11 @@ export async function importCodeforcesProblemsController(
       data,
       timestamp: new Date().toISOString(),
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[Codeforces Import Controller Error]:', err);
     res.status(500).json({
       success: false,
-      message: err.message || 'Failed to import selected problems',
+      message: err instanceof Error ? err.message : 'Failed to import selected problems',
       error: 'INTERNAL_SERVER_ERROR',
       timestamp: new Date().toISOString(),
     });

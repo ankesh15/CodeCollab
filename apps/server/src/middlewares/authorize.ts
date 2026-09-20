@@ -84,9 +84,12 @@ export function requireRoomRole(allowedRoles: RoomRole[]) {
         }
 
         const userRank = ROLE_RANK[membership.role];
-        const minRequiredRank = Math.min(...allowedRoles.map((r) => ROLE_RANK[r]));
+        const roleRanks = allowedRoles
+          .map((r) => ROLE_RANK[r])
+          .filter((rank): rank is number => rank !== undefined);
+        const minRequiredRank = roleRanks.length > 0 ? Math.min(...roleRanks) : 0;
 
-        if (userRank < minRequiredRank) {
+        if (userRank === undefined || userRank < minRequiredRank) {
           res.status(403).json({
             success: false,
             message: `Insufficient room permissions. Required role level: ${allowedRoles.join(' or ')}.`,

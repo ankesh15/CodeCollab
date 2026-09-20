@@ -80,7 +80,7 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
       let currentVersion = documentVersionCache.get(roomId);
       if (currentVersion === undefined) {
         const currentDoc = await ensureDocument(roomId);
-        currentVersion = currentDoc.version;
+        currentVersion = typeof currentDoc?.version === 'number' ? currentDoc.version : 1;
         documentVersionCache.set(roomId, currentVersion);
       }
 
@@ -111,8 +111,9 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
       socket.to(roomId).emit(SOCKET_EVENTS.EDITOR_CHANGE, broadcastPayload);
 
       // Debounce PostgreSQL DB persistence write (~300ms)
-      if (persistenceDebounceMap.has(roomId)) {
-        clearTimeout(persistenceDebounceMap.get(roomId)!);
+      const existingTimer = persistenceDebounceMap.get(roomId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
       }
 
       const timer = setTimeout(async () => {
