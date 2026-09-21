@@ -13,6 +13,7 @@ interface TestResponse {
     message?: string;
     error?: string;
     data?: {
+      token?: string;
       problemId?: string;
       testCaseId?: string;
       status?: string;

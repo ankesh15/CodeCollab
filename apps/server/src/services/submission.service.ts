@@ -9,6 +9,7 @@ import { executeCodeInSandbox } from './code-runner.service';
 import { compareOutputs } from '../utils/output-comparator';
 import { broadcastSubmissionCompleted } from '../socket/submission.handlers';
 import { createNotificationService } from './notification.service';
+import { EXECUTION_CONFIG } from '../config/execution';
 
 export async function runCodeService(params: {
   userId: string;
@@ -18,7 +19,7 @@ export async function runCodeService(params: {
 }): Promise<RunCodeResponseData> {
   const { problemId, language, code } = params;
 
-  // 1. Verify problem existence
+  // 1. Verify problem existence and publication status
   const problem = await prisma.problem.findUnique({
     where: { id: problemId },
     include: {
@@ -35,7 +36,19 @@ export async function runCodeService(params: {
     throw error;
   }
 
-  const publicTestCases = problem.testCases;
+  if (problem.status !== 'PUBLISHED') {
+    const error = new Error('Problem is not published for execution.') as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (problem.testCases.length === 0) {
+    const error = new Error('Problem has no public test cases configured for execution.') as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const publicTestCases = problem.testCases.slice(0, EXECUTION_CONFIG.MAX_TEST_CASES_PER_SUBMISSION);
   const testResults: TestCaseResult[] = [];
   let passedTestCases = 0;
   let overallStatus: SubmissionStatusType = 'ACCEPTED';
@@ -72,8 +85,9 @@ export async function runCodeService(params: {
       actualOutput: execResult.stdout || execResult.stderr || execResult.compileOutput || '',
     });
 
-    // Stop execution early if compilation error occurred
-    if (testStatus === 'COMPILATION_ERROR') {
+    // Terminate immediately on infrastructure failure or compilation error
+    if (testStatus === 'SYSTEM_ERROR' || testStatus === 'COMPILATION_ERROR') {
+      overallStatus = testStatus;
       break;
     }
   }
@@ -97,7 +111,7 @@ export async function submitCodeService(params: {
 }): Promise<SubmissionSummary> {
   const { userId, problemId, roomId, language, code } = params;
 
-  // 1. Verify problem existence
+  // 1. Verify problem existence and publication status
   const problem = await prisma.problem.findUnique({
     where: { id: problemId },
     include: {
@@ -110,6 +124,18 @@ export async function submitCodeService(params: {
   if (!problem) {
     const error = new Error('Problem not found.') as Error & { statusCode?: number };
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (problem.status !== 'PUBLISHED') {
+    const error = new Error('Problem is not published for submissions.') as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (problem.testCases.length === 0) {
+    const error = new Error('Problem has no test cases configured for execution.') as Error & { statusCode?: number };
+    error.statusCode = 400;
     throw error;
   }
 
@@ -142,7 +168,7 @@ export async function submitCodeService(params: {
     }
   }
 
-  // 3. Create initial Submission record in DB (status: QUEUED)
+  // 3. Deterministic State Machine: Create in QUEUED state, then transition to RUNNING
   const submissionRecord = await prisma.submission.create({
     data: {
       userId,
@@ -150,7 +176,7 @@ export async function submitCodeService(params: {
       roomId: roomId || null,
       language,
       sourceCode: code,
-      status: 'RUNNING',
+      status: 'QUEUED',
     },
     include: {
       user: {
@@ -159,8 +185,13 @@ export async function submitCodeService(params: {
     },
   });
 
-  // 4. Evaluate against ALL test cases (public + hidden)
-  const allTestCases = problem.testCases;
+  await prisma.submission.update({
+    where: { id: submissionRecord.id },
+    data: { status: 'RUNNING' },
+  });
+
+  // 4. Evaluate against test cases (bounded by MAX_TEST_CASES_PER_SUBMISSION)
+  const allTestCases = problem.testCases.slice(0, EXECUTION_CONFIG.MAX_TEST_CASES_PER_SUBMISSION);
   const testResults: TestCaseResult[] = [];
   let passedTestCases = 0;
   let overallStatus: SubmissionStatusType = 'ACCEPTED';
@@ -178,6 +209,20 @@ export async function submitCodeService(params: {
       maxMemoryUsed = execResult.memory || 0;
     }
 
+    // Runner failure must never be masked as ACCEPTED or WRONG_ANSWER
+    if (execResult.status === 'SYSTEM_ERROR') {
+      overallStatus = 'SYSTEM_ERROR';
+      failedTestIndex = !testCase.isHidden ? index + 1 : null;
+      break;
+    }
+
+    // Compilation error halts further test cases immediately
+    if (execResult.status === 'COMPILATION_ERROR') {
+      overallStatus = 'COMPILATION_ERROR';
+      failedTestIndex = !testCase.isHidden ? index + 1 : null;
+      break;
+    }
+
     let testStatus: SubmissionStatusType = execResult.status;
 
     if (execResult.status === 'ACCEPTED') {
@@ -192,30 +237,29 @@ export async function submitCodeService(params: {
 
     if (testStatus !== 'ACCEPTED' && overallStatus === 'ACCEPTED') {
       overallStatus = testStatus;
-      failedTestIndex = index + 1;
+      // Only disclose failed test index if it was a public test case
+      if (!testCase.isHidden) {
+        failedTestIndex = index + 1;
+      } else {
+        failedTestIndex = null;
+      }
     }
 
-    // Build secure test result: Hide input/output data for hidden tests
-    const testResult: TestCaseResult = {
-      testCaseId: testCase.id,
-      testIndex: index + 1,
-      isHidden: testCase.isHidden,
-      status: testStatus,
-      executionTime: execResult.executionTime,
-      memory: execResult.memory,
-    };
-
-    // Include input/output details ONLY for public test cases
+    // HIDDEN TEST CASE PROTECTION:
+    // Only public test case results are added to the returned testResults array.
+    // Hidden test case IDs, statuses, execution times, and memory are never exposed.
     if (!testCase.isHidden) {
-      testResult.input = testCase.input;
-      testResult.expectedOutput = testCase.expectedOutput;
-      testResult.actualOutput = execResult.stdout || execResult.stderr || execResult.compileOutput || '';
-    }
-
-    testResults.push(testResult);
-
-    if (testStatus === 'COMPILATION_ERROR') {
-      break;
+      testResults.push({
+        testCaseId: testCase.id,
+        testIndex: index + 1,
+        isHidden: false,
+        status: testStatus,
+        executionTime: execResult.executionTime,
+        memory: execResult.memory,
+        input: testCase.input,
+        expectedOutput: testCase.expectedOutput,
+        actualOutput: execResult.stdout || execResult.stderr || execResult.compileOutput || '',
+      });
     }
   }
 
@@ -258,10 +302,15 @@ export async function submitCodeService(params: {
 
   // 6. Create persistent notification for the user who submitted
   try {
+    const notifMessage =
+      overallStatus === 'SYSTEM_ERROR'
+        ? `Your submission for "${updatedSubmission.problem.title}" encountered a runner execution service error.`
+        : `Your submission for "${updatedSubmission.problem.title}" was evaluated as ${overallStatus} (${passedTestCases}/${allTestCases.length} passed).`;
+
     await createNotificationService({
       userId,
       type: 'SUBMISSION_RESULT',
-      message: `Your submission for "${updatedSubmission.problem.title}" was evaluated as ${overallStatus} (${passedTestCases}/${allTestCases.length} passed).`,
+      message: notifMessage,
     });
   } catch (notifErr) {
     console.warn('[SubmissionService] Failed to create submission completion notification:', notifErr);

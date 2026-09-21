@@ -31,6 +31,13 @@ export const SUPPORTED_LANGUAGES: Record<string, LanguageConfig> = {
 };
 
 export function getLanguageConfig(lang: string): LanguageConfig | null {
+  if (!lang || typeof lang !== 'string') return null;
   const normalized = lang.toLowerCase().trim();
   return SUPPORTED_LANGUAGES[normalized] || null;
 }
+
+export function isLanguageSupported(lang: string): boolean {
+  return getLanguageConfig(lang) !== null;
+}
+
+export const SUPPORTED_LANGUAGE_IDS = Object.keys(SUPPORTED_LANGUAGES);

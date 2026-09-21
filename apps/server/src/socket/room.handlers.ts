@@ -15,6 +15,20 @@ import { presenceManager } from './presence';
 import { prisma } from '../config/db';
 import { ensureDocument } from '../services/document.service';
 
+// Rate limiting: sliding window per socket
+const joinRateLimitMap = new Map<string, number[]>();
+
+function checkRateLimit(map: Map<string, number[]>, key: string, maxLimit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const timestamps = (map.get(key) || []).filter((t) => now - t < windowMs);
+  if (timestamps.length >= maxLimit) {
+    return false;
+  }
+  timestamps.push(now);
+  map.set(key, timestamps);
+  return true;
+}
+
 export function registerRoomHandlers(_io: Server, socket: AuthenticatedSocket): void {
   // Handle room:join
   socket.on(SOCKET_EVENTS.ROOM_JOIN, async (data: RoomJoinPayload) => {
@@ -23,6 +37,16 @@ export function registerRoomHandlers(_io: Server, socket: AuthenticatedSocket): 
         const errorPayload: SocketErrorPayload = {
           code: 'UNAUTHORIZED',
           message: 'Authentication required to join room.',
+        };
+        socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
+        return;
+      }
+
+      // Rate limit check: 10 joins per 10 seconds
+      if (!checkRateLimit(joinRateLimitMap, socket.id, 10, 10000)) {
+        const errorPayload: SocketErrorPayload = {
+          code: 'RATE_LIMITED',
+          message: 'Too many room join attempts. Please slow down.',
         };
         socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
         return;
@@ -55,7 +79,7 @@ export function registerRoomHandlers(_io: Server, socket: AuthenticatedSocket): 
       }
 
       // Verify RoomMember membership
-      const membership = await prisma.roomMember.findUnique({
+      let membership = await prisma.roomMember.findUnique({
         where: {
           roomId_userId: {
             roomId,
@@ -72,6 +96,24 @@ export function registerRoomHandlers(_io: Server, socket: AuthenticatedSocket): 
         };
         socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
         return;
+      }
+
+      // If public room and not yet a member, persist membership
+      if (!room.isPrivate && !membership) {
+        membership = await prisma.roomMember.upsert({
+          where: {
+            roomId_userId: {
+              roomId,
+              userId: socket.user.userId,
+            },
+          },
+          update: {},
+          create: {
+            roomId,
+            userId: socket.user.userId,
+            role: 'MEMBER',
+          },
+        });
       }
 
       // Join Socket.IO room isolation channel
@@ -157,6 +199,7 @@ export function registerRoomHandlers(_io: Server, socket: AuthenticatedSocket): 
 
   // Handle automatic socket disconnect
   socket.on('disconnect', () => {
+    joinRateLimitMap.delete(socket.id);
     if (!socket.user) return;
 
     const removedEntries = presenceManager.removeUserFromAllRooms(socket.user.userId);

@@ -9,17 +9,41 @@ import {
 import { AuthenticatedSocket } from './socket.types';
 import { prisma } from '../config/db';
 import { ensureDocument, updateDocument, updateDocumentLanguage } from '../services/document.service';
+import { isLanguageSupported, SUPPORTED_LANGUAGE_IDS } from '../config/languages';
 
 // Debounce timer map for PostgreSQL document persistence
 const persistenceDebounceMap = new Map<string, NodeJS.Timeout>();
 // In-memory version cache for real-time conflict checking
 const documentVersionCache = new Map<string, number>();
 
+// Rate limit tracking maps per socket
+const changeRateLimitMap = new Map<string, number[]>();
+const cursorRateLimitMap = new Map<string, number[]>();
+const languageRateLimitMap = new Map<string, number[]>();
+
+function checkRateLimit(map: Map<string, number[]>, key: string, maxLimit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const timestamps = (map.get(key) || []).filter((t) => now - t < windowMs);
+  if (timestamps.length >= maxLimit) {
+    return false;
+  }
+  timestamps.push(now);
+  map.set(key, timestamps);
+  return true;
+}
+
 export function clearVersionCache(): void {
   documentVersionCache.clear();
 }
 
 export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket): void {
+  // Clean up rate limiters on disconnect
+  socket.on('disconnect', () => {
+    changeRateLimitMap.delete(socket.id);
+    cursorRateLimitMap.delete(socket.id);
+    languageRateLimitMap.delete(socket.id);
+  });
+
   // 1. Handle editor:change
   socket.on(SOCKET_EVENTS.EDITOR_CHANGE, async (data: EditorChangePayload) => {
     try {
@@ -42,6 +66,26 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
       }
 
       const { roomId, content, version } = data;
+
+      // Verify socket has joined the room isolation channel
+      if (!socket.rooms.has(roomId)) {
+        const errorPayload: SocketErrorPayload = {
+          code: 'ROOM_ACCESS_REQUIRED',
+          message: 'You must join the room before synchronizing edits.',
+        };
+        socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
+        return;
+      }
+
+      // Rate limit check: max 50 edits per second
+      if (!checkRateLimit(changeRateLimitMap, socket.id, 50, 1000)) {
+        const errorPayload: SocketErrorPayload = {
+          code: 'RATE_LIMITED',
+          message: 'Editor updates sent too quickly. Please slow down.',
+        };
+        socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
+        return;
+      }
 
       // Server-side authorization check: verify socket user belongs to room
       const room = await prisma.room.findUnique({
@@ -84,13 +128,28 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
         documentVersionCache.set(roomId, currentVersion);
       }
 
-      // Version Conflict Check: Reject if incoming version is less than current version
-      if (version < currentVersion) {
+      // Version Conflict Check: Reject if incoming version is less than or equal to current version
+      if (version <= currentVersion) {
+        const latestDoc = await ensureDocument(roomId);
         const errorPayload: SocketErrorPayload = {
           code: 'DOCUMENT_VERSION_CONFLICT',
           message: `Document version conflict. Current version is ${currentVersion}, received ${version}.`,
         };
         socket.emit(SOCKET_EVENTS.ERROR, errorPayload);
+
+        // Deliver latest server document state for immediate resynchronization
+        socket.emit(SOCKET_EVENTS.DOCUMENT_STATE, {
+          roomId,
+          document: {
+            id: latestDoc.id,
+            roomId: latestDoc.roomId,
+            content: latestDoc.content,
+            language: latestDoc.language,
+            version: currentVersion,
+            createdAt: latestDoc.createdAt.toISOString(),
+            updatedAt: latestDoc.updatedAt.toISOString(),
+          },
+        });
         return;
       }
 
@@ -143,6 +202,12 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
 
       const { roomId, position } = data;
 
+      // Verify socket has joined room
+      if (!socket.rooms.has(roomId)) return;
+
+      // Rate limit cursor updates: max 30 per second
+      if (!checkRateLimit(cursorRateLimitMap, socket.id, 30, 1000)) return;
+
       // Broadcast cursor position to all other room members
       const broadcastPayload: EditorCursorPayload = {
         roomId,
@@ -162,9 +227,83 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
   // 3. Handle editor:language
   socket.on(SOCKET_EVENTS.EDITOR_LANGUAGE, async (data: EditorLanguagePayload) => {
     try {
-      if (!socket.user || !data?.roomId || !data?.language) return;
+      if (!socket.user) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required to update language.',
+        });
+        return;
+      }
+
+      if (!data?.roomId || !data?.language) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'INVALID_PAYLOAD',
+          message: 'roomId and language are required.',
+        });
+        return;
+      }
 
       const { roomId, language } = data;
+
+      // Verify socket has joined room
+      if (!socket.rooms.has(roomId)) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'ROOM_ACCESS_REQUIRED',
+          message: 'You must join the room before updating language.',
+        });
+        return;
+      }
+
+      // Rate limit check: max 5 changes per 10 seconds
+      if (!checkRateLimit(languageRateLimitMap, socket.id, 5, 10000)) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'RATE_LIMITED',
+          message: 'Language changes sent too quickly. Please slow down.',
+        });
+        return;
+      }
+
+      // Validate language against allowed set
+      if (!isLanguageSupported(language)) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'UNSUPPORTED_LANGUAGE',
+          message: `Language '${language}' is not supported. Supported languages: ${SUPPORTED_LANGUAGE_IDS.join(', ')}`,
+        });
+        return;
+      }
+
+      // Verify room existence and authorization
+      const room = await prisma.room.findUnique({
+        where: { id: roomId },
+        select: { id: true, isPrivate: true },
+      });
+
+      if (!room) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'ROOM_NOT_FOUND',
+          message: 'Requested room does not exist.',
+        });
+        return;
+      }
+
+      if (room.isPrivate) {
+        const membership = await prisma.roomMember.findUnique({
+          where: {
+            roomId_userId: {
+              roomId,
+              userId: socket.user.userId,
+            },
+          },
+        });
+
+        if (!membership) {
+          socket.emit(SOCKET_EVENTS.ERROR, {
+            code: 'FORBIDDEN',
+            message: 'Forbidden. You are not authorized to update language in this private room.',
+          });
+          return;
+        }
+      }
 
       const updatedDoc = await updateDocumentLanguage(roomId, language);
 
@@ -177,9 +316,15 @@ export function registerEditorHandlers(_io: Server, socket: AuthenticatedSocket)
         },
       };
 
+      // Broadcast to all sockets in room including sender or to others
       socket.to(roomId).emit(SOCKET_EVENTS.EDITOR_LANGUAGE, broadcastPayload);
+      socket.emit(SOCKET_EVENTS.EDITOR_LANGUAGE, broadcastPayload);
     } catch (err) {
       console.error('[Socket editor:language Error]:', err);
+      socket.emit(SOCKET_EVENTS.ERROR, {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'An error occurred during language update.',
+      });
     }
   });
 }

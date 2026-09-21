@@ -220,6 +220,16 @@ export async function createAdminProblemController(
       return;
     }
 
+    if (status === 'PUBLISHED') {
+      res.status(400).json({
+        success: false,
+        message: 'Cannot create a problem directly as PUBLISHED. Problems must be created in DRAFT status, then have at least 1 public and 1 hidden test case added before publishing.',
+        error: 'PUBLISH_VALIDATION_FAILED',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     const newProblem = await prisma.problem.create({
       data: {
         title: title.trim(),
@@ -231,7 +241,7 @@ export async function createAdminProblemController(
         inputFormat: typeof inputFormat === 'string' ? inputFormat.trim() : '',
         outputFormat: typeof outputFormat === 'string' ? outputFormat.trim() : '',
         source: 'INTERNAL',
-        status: status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT',
+        status: 'DRAFT',
       },
     });
 
@@ -271,6 +281,7 @@ export async function updateAdminProblemController(
 
     const problem = await prisma.problem.findUnique({
       where: { id: problemId },
+      include: { testCases: true },
     });
 
     if (!problem) {
@@ -359,8 +370,23 @@ export async function updateAdminProblemController(
       updateData.outputFormat = String(outputFormat).trim();
     }
 
-    if (status !== undefined && ['DRAFT', 'PUBLISHED'].includes(status)) {
-      updateData.status = status;
+    if (status !== undefined) {
+      if (status === 'PUBLISHED') {
+        const publicCount = (problem.testCases || []).filter((tc) => !tc.isHidden).length;
+        const hiddenCount = (problem.testCases || []).filter((tc) => tc.isHidden).length;
+        if (publicCount === 0 || hiddenCount === 0) {
+          res.status(400).json({
+            success: false,
+            message: 'Cannot publish problem. A problem must have at least 1 public test case and at least 1 hidden test case before publishing.',
+            error: 'PUBLISH_VALIDATION_FAILED',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        updateData.status = 'PUBLISHED';
+      } else if (status === 'DRAFT') {
+        updateData.status = 'DRAFT';
+      }
     }
 
     await prisma.problem.update({

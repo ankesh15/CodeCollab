@@ -46,6 +46,15 @@ export function registerMessageHandlers(io: Server, socket: AuthenticatedSocket)
         return;
       }
 
+      // Verify socket has joined room isolation channel
+      if (!socket.rooms.has(payload.roomId)) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'ROOM_ACCESS_REQUIRED',
+          message: 'You must join the room before sending messages.',
+        });
+        return;
+      }
+
       // Payload size limit check (Max 2000 characters)
       if (payload.content.trim().length > 2000) {
         socket.emit(SOCKET_EVENTS.ERROR, {
@@ -100,6 +109,15 @@ export function registerMessageHandlers(io: Server, socket: AuthenticatedSocket)
         socket.emit(SOCKET_EVENTS.ERROR, {
           code: 'INVALID_PAYLOAD',
           message: 'messageId is required.',
+        });
+        return;
+      }
+
+      // Verify socket has joined room if roomId is provided
+      if (payload.roomId && !socket.rooms.has(payload.roomId)) {
+        socket.emit(SOCKET_EVENTS.ERROR, {
+          code: 'ROOM_ACCESS_REQUIRED',
+          message: 'You must join the room before deleting messages.',
         });
         return;
       }

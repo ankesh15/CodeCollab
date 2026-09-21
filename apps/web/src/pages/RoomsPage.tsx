@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { Footer } from '../components/Footer';
-import { fetchRooms } from '../lib/api';
+import { fetchRooms, createRoomApi } from '../lib/api';
 import { RoomSummary } from '@codecollab/shared';
-import { DoorOpen, Search, User, Lock, Globe, ArrowRight } from 'lucide-react';
+import { DoorOpen, Search, User, Lock, Globe, ArrowRight, Plus, X, Loader2 } from 'lucide-react';
 
 export const RoomsPage: React.FC = () => {
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+
+  // Create room modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [language, setLanguage] = useState<'cpp' | 'javascript' | 'python'>('cpp');
+  const [isPrivate, setIsPrivate] = useState(false);
 
   useEffect(() => {
     const loadRooms = async () => {
@@ -25,6 +34,33 @@ export const RoomsPage: React.FC = () => {
 
     loadRooms();
   }, []);
+
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateError(null);
+
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2 || trimmedName.length > 100) {
+      setCreateError('Room name must be between 2 and 100 characters.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const newRoom = await createRoomApi({
+        name: trimmedName,
+        language,
+        isPrivate,
+      });
+
+      setIsModalOpen(false);
+      navigate(`/rooms/${newRoom.id}`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create room');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const filteredRooms = rooms.filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -45,16 +81,32 @@ export const RoomsPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            <input
-              type="text"
-              placeholder="Search rooms..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 transition-colors"
-            />
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Search Box */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                placeholder="Search rooms..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 transition-colors"
+              />
+            </div>
+
+            {/* Create Room Button */}
+            <button
+              onClick={() => {
+                setCreateError(null);
+                setName('');
+                setIsPrivate(false);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-all shadow-sm shrink-0 active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Room</span>
+            </button>
           </div>
         </div>
 
@@ -122,6 +174,100 @@ export const RoomsPage: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* CREATE ROOM MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <DoorOpen className="w-5 h-5 text-indigo-600" />
+                Create Coding Room
+              </h3>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {createError && (
+              <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-xl">
+                {createError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateRoom} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Room Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Dynamic Programming Study Group"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Primary Language
+                </label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as 'cpp' | 'javascript' | 'python')}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600"
+                >
+                  <option value="cpp">C++ (GCC 13)</option>
+                  <option value="javascript">JavaScript (Node.js 20)</option>
+                  <option value="python">Python (3.11)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <input
+                  type="checkbox"
+                  id="isPrivateCheck"
+                  checked={isPrivate}
+                  onChange={(e) => setIsPrivate(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <label htmlFor="isPrivateCheck" className="text-xs font-medium text-slate-700 select-none">
+                  Make this room <strong>private</strong> (invited members only)
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm disabled:opacity-50 active:scale-95"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Room'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

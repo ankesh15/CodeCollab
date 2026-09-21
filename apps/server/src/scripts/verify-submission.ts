@@ -85,8 +85,8 @@ async function verifySubmissionSystem() {
       try {
         const input = fs.readFileSync(0, 'utf-8').trim().split('\\n');
         if (input.length >= 2) {
-          const nums = JSON.parse(input[0]);
-          const target = parseInt(input[1], 10);
+          const nums = JSON.parse(input[0].trim());
+          const target = parseInt(input[1].trim(), 10);
           const map = new Map();
           for (let i = 0; i < nums.length; i++) {
             const diff = target - nums[i];
@@ -97,8 +97,9 @@ async function verifySubmissionSystem() {
             map.set(nums[i], i);
           }
         }
-      } catch (e) {}
-      console.log("[0, 1]");
+      } catch (e) {
+        process.exit(1);
+      }
     `;
 
     // Dynamic Two Sum Python Solver
@@ -107,8 +108,8 @@ import sys, json
 try:
     lines = sys.stdin.read().strip().split('\\n')
     if len(lines) >= 2:
-        nums = json.loads(lines[0])
-        target = int(lines[1])
+        nums = json.loads(lines[0].strip())
+        target = int(lines[1].strip())
         mp = {}
         for i, num in enumerate(nums):
             diff = target - num
@@ -117,8 +118,7 @@ try:
                 sys.exit(0)
             mp[num] = i
 except Exception:
-    pass
-print("[0, 1]")
+    sys.exit(1)
 `;
 
     // =========================================================================
@@ -225,8 +225,8 @@ print("[0, 1]")
         problemId: problem1.id,
         language: 'cpp',
         code: `
-          syntax_error_invalid_code {
-            int main() return 0;
+          int main() {
+            invalid syntax here;
           }
         `,
       }),
@@ -251,10 +251,7 @@ print("[0, 1]")
       body: JSON.stringify({
         problemId: problem1.id,
         language: 'javascript',
-        code: `
-          // WRONG_ANSWER_TRIGGER
-          console.log("[0, 0]");
-        `,
+        code: 'console.log("[0, 0]");',
       }),
     });
 
@@ -330,13 +327,9 @@ print("[0, 1]")
     }
 
     const testResultsInSub = acceptedJson.data.submission.testResults || [];
-    const hiddenResultsExposed = testResultsInSub.some(
-      (t: { isHidden: boolean; input?: string; expectedOutput?: string }) =>
-        t.isHidden && (t.input !== undefined || t.expectedOutput !== undefined)
-    );
-
-    if (hiddenResultsExposed) {
-      throw new Error('SECURITY VIOLATION: Submission response exposed hidden test input or expected output!');
+    const hasAnyHiddenInResults = testResultsInSub.some((t: { isHidden: boolean }) => t.isHidden);
+    if (hasAnyHiddenInResults) {
+      throw new Error('SECURITY VIOLATION: Submission response leaked hidden test cases in testResults array!');
     }
     console.log('  ✅ PASS: Hidden test inputs & expected outputs strictly isolated from client payloads.');
 

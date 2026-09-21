@@ -64,6 +64,53 @@ export interface RoomSummary {
   createdAt: string;
 }
 
+export interface CreateRoomRequest {
+  name: string;
+  language?: string;
+  isPrivate?: boolean;
+}
+
+export interface UpdateRoomRequest {
+  name?: string;
+  language?: string;
+  isPrivate?: boolean;
+}
+
+export interface RoomMemberSummary {
+  userId: string;
+  username: string;
+  avatar?: string | null;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  joinedAt: string;
+}
+
+export interface RoomDetailsData {
+  id: string;
+  name: string;
+  language: string;
+  isPrivate: boolean;
+  ownerId: string;
+  owner: {
+    id: string;
+    username: string;
+    avatar?: string | null;
+  };
+  members: Array<{
+    id?: string;
+    roomId?: string;
+    userId: string;
+    role: 'OWNER' | 'ADMIN' | 'MEMBER';
+    joinedAt?: string;
+    user: {
+      id: string;
+      username: string;
+      avatar?: string | null;
+    };
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProblemExample {
   input: string;
   expectedOutput: string;

@@ -274,6 +274,7 @@ class ProblemImportService {
             sourceUrl,
             externalRating: raw.rating ?? null,
             tags: raw.tags || [],
+            status: 'DRAFT',
           },
         });
 

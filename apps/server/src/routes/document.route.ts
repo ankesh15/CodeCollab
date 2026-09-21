@@ -10,7 +10,7 @@ const router = Router();
 router.get(
   '/rooms/:roomId/document',
   authenticate,
-  requireRoomRole([RoomRole.OWNER, RoomRole.ADMIN, RoomRole.MEMBER]),
+  requireRoomRole([RoomRole.OWNER, RoomRole.ADMIN, RoomRole.MEMBER], { allowPublicRead: true }),
   getDocumentController
 );
 

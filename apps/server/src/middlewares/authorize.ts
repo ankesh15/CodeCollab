@@ -9,7 +9,10 @@ const ROLE_RANK: Record<RoomRole, number> = {
   [RoomRole.MEMBER]: 1,
 };
 
-export function requireRoomRole(allowedRoles: RoomRole[]) {
+export function requireRoomRole(
+  allowedRoles: RoomRole[] = [],
+  options?: { allowPublicRead?: boolean }
+) {
   return async (req: Request, res: Response<ApiResponse>, next: NextFunction): Promise<void> => {
     if (!req.user) {
       res.status(401).json({
@@ -68,6 +71,12 @@ export function requireRoomRole(allowedRoles: RoomRole[]) {
           error: 'FORBIDDEN',
           timestamp: new Date().toISOString(),
         });
+        return;
+      }
+
+      // Public Room Access: If room is public, allowPublicRead is enabled, and request is GET
+      if (options?.allowPublicRead && !room.isPrivate && req.method === 'GET') {
+        next();
         return;
       }
 

@@ -13,6 +13,10 @@ import {
   submitCodeApi,
   fetchSubmissionsApi,
   fetchRoomLeaderboardApi,
+  leaveRoomApi,
+  deleteRoomApi,
+  updateRoomSettingsApi,
+  joinRoomApi,
 } from '../lib/api';
 import { LeaderboardTable } from '../components/LeaderboardTable';
 import {
@@ -57,6 +61,8 @@ import {
   X,
   DoorOpen,
   WifiOff,
+  Settings,
+  Trash2,
 } from 'lucide-react';
 
 interface ToastNotification {
@@ -86,6 +92,17 @@ export const RoomPage: React.FC = () => {
   // Problem Library & Active Problem State
   const [problems, setProblems] = useState<ProblemSummary[]>([]);
   const [selectedProblem, setSelectedProblem] = useState<ProblemSummary | null>(null);
+
+  // Settings Modal State
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsName, setSettingsName] = useState('');
+  const [settingsLanguage, setSettingsLanguage] = useState<'cpp' | 'javascript' | 'python'>('cpp');
+  const [settingsIsPrivate, setSettingsIsPrivate] = useState(false);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+
+  const isOwner = Boolean(user && roomDetails && roomDetails.ownerId === user.id);
+  const isAdmin = user?.role === 'ADMIN';
+  const canManageRoom = isOwner || isAdmin;
 
   // Active Panel Tab: 'problem' | 'results' | 'history' | 'chat' | 'leaderboard'
   const [activeTab, setActiveTab] = useState<'problem' | 'results' | 'history' | 'chat' | 'leaderboard'>('problem');
@@ -135,6 +152,9 @@ export const RoomPage: React.FC = () => {
     if (!roomId || !token) return;
 
     setIsInitialLoading(true);
+
+    // Ensure membership for public rooms
+    joinRoomApi(roomId).catch(() => {});
 
     Promise.all([
       fetchRoomDetails(roomId)
@@ -576,9 +596,56 @@ export const RoomPage: React.FC = () => {
             <span>Language: <strong className="text-slate-900 font-mono">{language === 'cpp' ? 'C++' : language === 'python' ? 'Python' : 'JavaScript'}</strong></span>
           </div>
 
+          {/* Room Settings (Owner/Admin) */}
+          {canManageRoom && (
+            <button
+              onClick={() => {
+                setSettingsName(roomDetails?.name || '');
+                setSettingsLanguage((roomDetails?.language as 'cpp' | 'javascript' | 'python') || 'cpp');
+                setSettingsIsPrivate(Boolean(roomDetails?.isPrivate));
+                setIsSettingsModalOpen(true);
+              }}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors border border-slate-200"
+              title="Room Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Delete Room (Owner/Admin) */}
+          {canManageRoom && (
+            <button
+              onClick={async () => {
+                if (!roomId) return;
+                if (window.confirm('Are you sure you want to delete this room? All contents will be permanently deleted.')) {
+                  try {
+                    await deleteRoomApi(roomId);
+                    addToast('Room deleted successfully', 'info');
+                    navigate('/rooms');
+                  } catch (err) {
+                    addToast(err instanceof Error ? err.message : 'Failed to delete room', 'error');
+                  }
+                }
+              }}
+              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors border border-rose-200"
+              title="Delete Room"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Leave Room Button */}
           <button
-            onClick={() => navigate('/rooms')}
+            onClick={async () => {
+              if (roomId) {
+                try {
+                  await leaveRoomApi(roomId);
+                } catch (err) {
+                  console.error('Leave room API error:', err);
+                }
+              }
+              navigate('/rooms');
+            }}
             className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors border border-slate-200"
           >
             Leave Room
@@ -1030,6 +1097,7 @@ export const RoomPage: React.FC = () => {
               language={language}
               onChange={handleEditorChange}
               onCursorChange={handleCursorChange}
+              remoteCursors={userCursors}
             />
           </div>
 
@@ -1133,6 +1201,113 @@ export const RoomPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ROOM SETTINGS MODAL */}
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Settings className="w-4 h-4 text-indigo-600" />
+                Room Settings
+              </h3>
+              <button
+                onClick={() => setIsSettingsModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!roomId) return;
+                try {
+                  setIsUpdatingSettings(true);
+                  const updated = await updateRoomSettingsApi(roomId, {
+                    name: settingsName.trim(),
+                    language: settingsLanguage,
+                    isPrivate: settingsIsPrivate,
+                  });
+                  setRoomDetails((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          name: updated.name,
+                          language: updated.language,
+                          isPrivate: updated.isPrivate,
+                        }
+                      : prev
+                  );
+                  setLanguage(updated.language);
+                  setIsSettingsModalOpen(false);
+                  addToast('Room settings updated successfully', 'success');
+                } catch (err) {
+                  addToast(err instanceof Error ? err.message : 'Failed to update settings', 'error');
+                } finally {
+                  setIsUpdatingSettings(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Room Name</label>
+                <input
+                  type="text"
+                  required
+                  value={settingsName}
+                  onChange={(e) => setSettingsName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Default Language</label>
+                <select
+                  value={settingsLanguage}
+                  onChange={(e) => setSettingsLanguage(e.target.value as 'cpp' | 'javascript' | 'python')}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-indigo-600"
+                >
+                  <option value="cpp">C++ (GCC 13)</option>
+                  <option value="javascript">JavaScript (Node.js 20)</option>
+                  <option value="python">Python (3.11)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="settingsIsPrivate"
+                  checked={settingsIsPrivate}
+                  onChange={(e) => setSettingsIsPrivate(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                />
+                <label htmlFor="settingsIsPrivate" className="text-xs font-medium text-slate-700 select-none">
+                  Private Room (invited members only)
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingSettings}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
+                >
+                  {isUpdatingSettings ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

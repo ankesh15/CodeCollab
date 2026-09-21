@@ -10,6 +10,9 @@ import {
   PaginatedNotificationsResponseData,
   UnreadCountResponseData,
   NotificationSummary,
+  CreateRoomRequest,
+  UpdateRoomRequest,
+  RoomDetailsData,
 } from '@codecollab/shared';
 
 import { disconnectSocket } from './socket';
@@ -40,13 +43,91 @@ export async function fetchRooms(): Promise<RoomSummary[]> {
   return json.data.rooms;
 }
 
-export async function fetchRoomDetails(roomId: string): Promise<RoomSummary> {
+export async function fetchRoomDetails(roomId: string): Promise<RoomDetailsData> {
   const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, {
     headers: getAuthHeaders(),
   });
-  const json: ApiResponse<{ room: RoomSummary }> = await res.json();
+  const json: ApiResponse<{ room: RoomDetailsData }> = await res.json();
   if (!res.ok || !json.success || !json.data) {
     throw new Error(json.message || 'Failed to fetch room details');
+  }
+  return json.data.room;
+}
+
+export async function createRoomApi(data: CreateRoomRequest): Promise<RoomDetailsData> {
+  const res = await fetch(`${API_BASE_URL}/rooms`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(data),
+  });
+  const json: ApiResponse<{ room: RoomDetailsData }> = await res.json();
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json.message || 'Failed to create room');
+  }
+  return json.data.room;
+}
+
+export async function joinRoomApi(roomId: string): Promise<{ roomId: string; role: string }> {
+  const res = await fetch(`${API_BASE_URL}/rooms/${roomId}/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+  });
+  const json: ApiResponse<{ roomId: string; role: string }> = await res.json();
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json.message || 'Failed to join room');
+  }
+  return json.data;
+}
+
+export async function leaveRoomApi(
+  roomId: string
+): Promise<{ action: 'deleted' | 'transferred' | 'left'; newOwnerId?: string }> {
+  const res = await fetch(`${API_BASE_URL}/rooms/${roomId}/leave`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+  });
+  const json: ApiResponse<{ action: 'deleted' | 'transferred' | 'left'; newOwnerId?: string }> = await res.json();
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json.message || 'Failed to leave room');
+  }
+  return json.data;
+}
+
+export async function deleteRoomApi(roomId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  const json: ApiResponse<unknown> = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.message || 'Failed to delete room');
+  }
+}
+
+export async function updateRoomSettingsApi(
+  roomId: string,
+  data: UpdateRoomRequest
+): Promise<RoomSummary> {
+  const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(data),
+  });
+  const json: ApiResponse<{ room: RoomSummary }> = await res.json();
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json.message || 'Failed to update room settings');
   }
   return json.data.room;
 }

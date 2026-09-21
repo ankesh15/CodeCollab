@@ -42,3 +42,6 @@ coverage
 # Docker local data
 docker-data
 docs/
+CODECOLLAB_AUDIT_REPORT.md
+P0_FIX_REPORT.md
+P1_FIX_REPORT.md

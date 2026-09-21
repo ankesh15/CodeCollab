@@ -31,11 +31,35 @@ export async function createDocument(
 }
 
 export async function ensureDocument(roomId: string): Promise<CodeDocument> {
-  const existing = await getDocument(roomId);
-  if (existing) {
-    return existing;
+  // Check if room exists before upserting document
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { id: true, language: true },
+  });
+
+  if (!room) {
+    const error = new Error(`Cannot ensure document: Room ${roomId} does not exist.`) as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
   }
-  return createDocument(roomId);
+
+  const defaultContent =
+    room.language === 'cpp'
+      ? `// C++ Workspace\n#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello CodeCollab!" << endl;\n    return 0;\n}`
+      : room.language === 'python'
+      ? `# Python Workspace\nprint("Hello CodeCollab!")`
+      : `// JavaScript Workspace\nconsole.log("Hello CodeCollab!");`;
+
+  return prisma.codeDocument.upsert({
+    where: { roomId },
+    update: {},
+    create: {
+      roomId,
+      language: room.language || 'javascript',
+      content: defaultContent,
+      version: 1,
+    },
+  });
 }
 
 export async function updateDocument(
@@ -43,17 +67,25 @@ export async function updateDocument(
   content: string,
   version: number,
   language?: string
-): Promise<CodeDocument> {
-  const doc = await ensureDocument(roomId);
+): Promise<CodeDocument | null> {
+  try {
+    const doc = await ensureDocument(roomId);
 
-  return prisma.codeDocument.update({
-    where: { id: doc.id },
-    data: {
-      content,
-      version,
-      ...(language ? { language } : {}),
-    },
-  });
+    return await prisma.codeDocument.update({
+      where: { id: doc.id },
+      data: {
+        content,
+        version,
+        ...(language ? { language } : {}),
+      },
+    });
+  } catch (err: any) {
+    // If room was deleted while debounce timer was pending, exit cleanly
+    if (err?.statusCode === 404 || err?.code === 'P2003' || err?.code === 'P2025') {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function updateDocumentLanguage(roomId: string, language: string): Promise<CodeDocument> {

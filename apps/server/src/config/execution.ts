@@ -1,6 +1,8 @@
 export const EXECUTION_CONFIG = {
   // Source Code Limits
   MAX_CODE_SIZE_BYTES: 64 * 1024, // 64 KB maximum source code size
+  MAX_STDIN_SIZE_BYTES: 64 * 1024, // 64 KB maximum stdin size
+  MAX_TEST_CASES_PER_SUBMISSION: 50, // Maximum test cases evaluated per submission
 
   // Sandbox Limits
   MAX_EXECUTION_TIME_MS: 5000, // 5 seconds CPU time limit
