@@ -69,6 +69,7 @@ model User {
   avatar       String?
   bio          String?
   role         UserRole @default(USER)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -78,6 +79,7 @@ model User {
   submissions     Submission[]
   messages        Message[]
   notifications   Notification[]
+  refreshTokens   RefreshToken[]
 
   @@index([username])
   @@index([email])
@@ -200,10 +202,28 @@ model Submission {
 
   @@index([userId, createdAt])
   @@index([userId, status])
+  @@index([userId, status, problemId])
+  @@index([status, createdAt])
   @@index([problemId, status])
   @@index([roomId, createdAt])
   @@index([roomId, status])
   @@map("submissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
 }
 
 model Message {

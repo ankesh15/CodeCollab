@@ -27,6 +27,7 @@ function getAuthHeaders(): HeadersInit {
 export function checkResponseStatus(res: Response): void {
   if (res.status === 401) {
     localStorage.removeItem('codecollab_token');
+    localStorage.removeItem('codecollab_refresh_token');
     disconnectSocket();
     window.dispatchEvent(new Event('auth:unauthorized'));
   }

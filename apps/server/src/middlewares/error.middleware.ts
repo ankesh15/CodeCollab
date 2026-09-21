@@ -32,6 +32,17 @@ export function errorHandler(
     return;
   }
 
+  if (err.message && err.message.includes('CORS policy rejection')) {
+    res.status(403).json({
+      success: false,
+      message: 'CORS policy rejection: Origin not allowed.',
+      error: 'FORBIDDEN',
+      requestId,
+      timestamp,
+    });
+    return;
+  }
+
   // Generic Error handling
   const statusCode = (err as Error & { statusCode?: number }).statusCode || 500;
   const errorCode = statusCode === 404 ? 'NOT_FOUND' : statusCode === 403 ? 'FORBIDDEN' : statusCode === 401 ? 'UNAUTHORIZED' : 'INTERNAL_SERVER_ERROR';

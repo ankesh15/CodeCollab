@@ -35,6 +35,7 @@ export interface SafeUser {
   avatar?: string | null;
   bio?: string | null;
   role?: UserRole;
+  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +50,26 @@ export interface AuthTokenPayload {
 export interface AuthResponseData {
   user: SafeUser;
   token: string;
+  refreshToken?: string;
+}
+
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
+export interface RefreshTokenResponseData {
+  token: string;
+  refreshToken: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface UpdateProfileRequest {
+  bio?: string;
+  avatar?: string;
 }
 
 // Room & Problem DTOs (Phase 4.5)

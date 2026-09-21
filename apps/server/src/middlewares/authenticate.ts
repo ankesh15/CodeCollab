@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { ApiResponse } from '@codecollab/shared';
 import { verifyToken } from '../utils/jwt';
+import { prisma } from '../config/db';
 
-export function authenticate(
+export async function authenticate(
   req: Request,
   res: Response<ApiResponse>,
   next: NextFunction
-): void {
+): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,6 +24,22 @@ export function authenticate(
 
   try {
     const payload = verifyToken(token);
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, isActive: true },
+    });
+
+    if (!user || user.isActive === false) {
+      res.status(401).json({
+        success: false,
+        message: 'Account is deactivated or does not exist.',
+        error: 'ACCOUNT_DEACTIVATED',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     req.user = payload;
     next();
   } catch (err) {
@@ -36,18 +53,24 @@ export function authenticate(
   }
 }
 
-export function optionalAuthenticate(
+export async function optionalAuthenticate(
   req: Request,
   _res: Response<ApiResponse>,
   next: NextFunction
-): void {
+): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7).trim();
     try {
       const payload = verifyToken(token);
-      req.user = payload;
+      const user = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { id: true, isActive: true },
+      });
+      if (user && user.isActive) {
+        req.user = payload;
+      }
     } catch {
       // Ignore token errors for optional authentication
     }

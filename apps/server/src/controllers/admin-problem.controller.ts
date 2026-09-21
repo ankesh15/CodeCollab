@@ -662,14 +662,60 @@ export async function publishProblemController(
   try {
     const problemId = req.params.problemId as string;
 
-    const problem = await prisma.problem.findUnique({
-      where: { id: problemId },
-      include: {
-        testCases: true,
-      },
+    const transactionResult = await prisma.$transaction(async (tx) => {
+      const problem = await tx.problem.findUnique({
+        where: { id: problemId },
+        include: {
+          testCases: true,
+        },
+      });
+
+      if (!problem) {
+        return { notFound: true };
+      }
+
+      const missingRequirements: string[] = [];
+
+      if (!problem.title || problem.title.trim().length === 0) {
+        missingRequirements.push('Title');
+      }
+      if (!problem.description || problem.description.trim().length === 0) {
+        missingRequirements.push('Description');
+      }
+      if (!problem.difficulty) {
+        missingRequirements.push('Difficulty');
+      }
+
+      const publicTestCases = problem.testCases.filter((tc) => !tc.isHidden);
+      const hiddenTestCases = problem.testCases.filter((tc) => tc.isHidden);
+
+      if (problem.testCases.length === 0) {
+        missingRequirements.push('At least one test case');
+      } else {
+        if (publicTestCases.length === 0) {
+          missingRequirements.push('At least 1 public test case');
+        }
+        if (hiddenTestCases.length === 0) {
+          missingRequirements.push('At least 1 hidden test case');
+        }
+      }
+
+      if (missingRequirements.length > 0) {
+        return {
+          validationFailed: true,
+          missingRequirements,
+        };
+      }
+
+      await tx.problem.update({
+        where: { id: problemId },
+        data: { status: 'PUBLISHED' },
+      });
+
+      return { success: true };
     });
 
-    if (!problem) {
+    if ('notFound' in transactionResult && transactionResult.notFound) {
       res.status(404).json({
         success: false,
         message: 'Problem not found.',
@@ -679,38 +725,13 @@ export async function publishProblemController(
       return;
     }
 
-    const missingRequirements: string[] = [];
-
-    if (!problem.title || problem.title.trim().length === 0) {
-      missingRequirements.push('Title');
-    }
-    if (!problem.description || problem.description.trim().length === 0) {
-      missingRequirements.push('Description');
-    }
-    if (!problem.difficulty) {
-      missingRequirements.push('Difficulty');
-    }
-
-    const publicTestCases = problem.testCases.filter((tc) => !tc.isHidden);
-    const hiddenTestCases = problem.testCases.filter((tc) => tc.isHidden);
-
-    if (problem.testCases.length === 0) {
-      missingRequirements.push('At least one test case');
-    } else {
-      if (publicTestCases.length === 0) {
-        missingRequirements.push('At least 1 public test case');
-      }
-      if (hiddenTestCases.length === 0) {
-        missingRequirements.push('At least 1 hidden test case');
-      }
-    }
-
-    if (missingRequirements.length > 0) {
+    if ('validationFailed' in transactionResult && transactionResult.validationFailed) {
+      const missing = transactionResult.missingRequirements || [];
       res.status(400).json({
         success: false,
-        message: `Cannot publish problem. Missing requirements: ${missingRequirements.join(', ')}`,
+        message: `Cannot publish problem. Missing requirements: ${missing.join(', ')}`,
         error: 'PUBLISH_VALIDATION_FAILED',
-        errors: missingRequirements.map((reqName) => ({
+        errors: missing.map((reqName: string) => ({
           field: reqName.toLowerCase().replace(/\s+/g, '_'),
           message: `${reqName} is required before publishing.`,
         })),
@@ -718,11 +739,6 @@ export async function publishProblemController(
       });
       return;
     }
-
-    await prisma.problem.update({
-      where: { id: problemId },
-      data: { status: 'PUBLISHED' },
-    });
 
     res.status(200).json({
       success: true,

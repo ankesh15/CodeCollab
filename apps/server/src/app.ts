@@ -6,8 +6,11 @@ import { requestIdMiddleware } from './middlewares/request-id.middleware';
 import { httpLoggerMiddleware } from './middlewares/http-logger.middleware';
 import {
   authRateLimiter,
+  refreshRateLimiter,
   submissionRateLimiter,
   chatRateLimiter,
+  analyticsRateLimiter,
+  importRateLimiter,
   generalRateLimiter,
 } from './config/rate-limit';
 import healthRouter from './routes/health.route';
@@ -25,7 +28,10 @@ import { errorHandler } from './middlewares/error.middleware';
 export function createApp(): Express {
   const app = express();
 
-  // 1. Security Headers (Helmet)
+  // 1. Trust Proxy Configuration (1-hop behind Nginx reverse proxy)
+  app.set('trust proxy', 1);
+
+  // 2. Security Headers (Helmet)
   app.use(
     helmet({
       contentSecurityPolicy: false, // Disabled to prevent blocking Monaco Web Workers & Socket.IO in Vite
@@ -33,46 +39,63 @@ export function createApp(): Express {
     })
   );
 
-  // 2. CORS Hardening
-  const allowedOrigins = [
-    config.corsOrigin,
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5174',
-  ];
+  // 3. CORS Hardening
+  const isProduction = (process.env['NODE_ENV'] || config.nodeEnv) === 'production';
+  const configuredOrigins = config.corsOrigin
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  const allowedOrigins = isProduction
+    ? configuredOrigins
+    : [
+        ...configuredOrigins,
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+      ];
 
   app.use(
     cors({
       origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-        if (!origin || allowedOrigins.includes(origin) || config.nodeEnv === 'development') {
-          callback(null, true);
-        } else {
-          callback(new Error(`CORS policy rejection: Origin ${origin} is not allowed.`));
+        // Allow requests with no origin (like curl, health checks, or server-to-server)
+        if (!origin) {
+          return callback(null, true);
         }
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        if (!isProduction) {
+          return callback(null, true);
+        }
+        return callback(new Error(`CORS policy rejection: Origin ${origin} is not allowed.`));
       },
       credentials: true,
     })
   );
 
-  // 3. Request Tracing & Logging Middlewares
+  // 4. Request Tracing & Logging Middlewares
   app.use(requestIdMiddleware);
   app.use(httpLoggerMiddleware);
 
-  // 4. Request Body Size Limit (Max 100KB to prevent memory exhaustion)
+  // 5. Request Body Size Limit (Max 100KB to prevent memory exhaustion)
   app.use(express.json({ limit: '100kb' }));
 
-  // 5. Global API Rate Limiting
+  // 6. Global API Rate Limiting
   app.use('/api', generalRateLimiter);
 
-  // 6. Specific Tiered Rate Limiters
+  // 7. Specific Tiered Rate Limiters
   app.use('/api/auth/login', authRateLimiter);
   app.use('/api/auth/register', authRateLimiter);
+  app.use('/api/auth/refresh', refreshRateLimiter);
   app.use('/api/submissions/run', submissionRateLimiter);
   app.use('/api/submissions', submissionRateLimiter);
+  app.use('/api/leaderboard', analyticsRateLimiter);
+  app.use('/api/analytics', analyticsRateLimiter);
+  app.use('/api/admin/problems/import/codeforces', importRateLimiter);
 
-  // 7. API Routes Registration
+  // 8. API Routes Registration
   app.use('/api', healthRouter);
   app.use('/api', authRouter);
   app.use('/api', roomRouter);
@@ -84,7 +107,7 @@ export function createApp(): Express {
   app.use('/api', analyticsRouter);
   app.use('/api/admin', adminRouter);
 
-  // 8. Fallback 404 Handler
+  // 9. Fallback 404 Handler
   app.use('*', (req, res) => {
     res.status(404).json({
       success: false,
@@ -95,7 +118,7 @@ export function createApp(): Express {
     });
   });
 
-  // 9. Global Error Handler
+  // 10. Global Error Handler
   app.use(errorHandler);
 
   return app;

@@ -56,7 +56,7 @@ export const LoginPage: React.FC = () => {
         throw new Error(data.message || data.error || 'Invalid username/email or password.');
       }
 
-      login(data.data.token, data.data.user);
+      login(data.data.token, data.data.user, data.data.refreshToken);
       navigate(targetPath, { replace: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

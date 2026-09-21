@@ -22,6 +22,18 @@ export const authRateLimiter: RateLimitRequestHandler = rateLimit({
 });
 
 /**
+ * Refresh Token Rate Limiter
+ * Protects token rotation and prevents spam token issuance.
+ */
+export const refreshRateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitResponse('Too many token refresh requests. Please wait before refreshing again.'),
+});
+
+/**
  * Strict Rate Limiter for Code Submissions & Runs
  * Protects compute resources & external code runner services.
  */
@@ -43,6 +55,30 @@ export const chatRateLimiter: RateLimitRequestHandler = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: rateLimitResponse('Message rate limit exceeded. Please slow down your messages.'),
+});
+
+/**
+ * Rate Limiter for Analytics & Leaderboard Queries
+ * Protects heavy database aggregations and prevents resource starvation.
+ */
+export const analyticsRateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitResponse('Analytics query rate limit exceeded. Please wait a moment.'),
+});
+
+/**
+ * Strict Rate Limiter for External Codeforces Imports
+ * Prevents API abuse and third-party throttling.
+ */
+export const importRateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: rateLimitResponse('Problem import rate limit exceeded. Please try again later.'),
 });
 
 /**

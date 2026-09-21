@@ -27,14 +27,14 @@ export async function checkDatabaseConnection(): Promise<DbStatus> {
     return {
       connected: true,
       provider: 'PostgreSQL',
-      message: 'Successfully connected to PostgreSQL via Prisma ORM.',
+      message: 'Successfully connected to PostgreSQL.',
     };
   } catch (error) {
-    const errMessage = error instanceof Error ? error.message : 'Unknown database connection error';
+    console.error('[Database Health Check Error]:', error instanceof Error ? error.message : error);
     return {
       connected: false,
       provider: 'PostgreSQL',
-      message: errMessage,
+      message: 'Database connection unavailable.',
     };
   }
 }

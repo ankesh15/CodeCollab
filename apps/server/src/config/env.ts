@@ -12,7 +12,9 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  JWT_REFRESH_SECRET: z.string().optional(),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   CODE_RUNNER_URL: z.string().default('https://ce.judge0.com'),
   CODE_RUNNER_API_KEY: z.string().optional().default(''),
 });
@@ -27,7 +29,13 @@ function validateEnvironment() {
       'postgresql://codecollab_user:codecollab_dev_pass@localhost:5433/codecollab_db?schema=public',
     JWT_SECRET:
       process.env['JWT_SECRET'] || 'codecollab_dev_jwt_secret_key_change_in_production',
-    JWT_EXPIRES_IN: process.env['JWT_EXPIRES_IN'],
+    JWT_EXPIRES_IN: process.env['JWT_EXPIRES_IN'] || '15m',
+    JWT_REFRESH_SECRET:
+      process.env['JWT_REFRESH_SECRET'] ||
+      (process.env['JWT_SECRET']
+        ? process.env['JWT_SECRET'] + '_refresh'
+        : 'codecollab_dev_jwt_refresh_secret_key_change_in_production'),
+    JWT_REFRESH_EXPIRES_IN: process.env['JWT_REFRESH_EXPIRES_IN'] || '7d',
     CODE_RUNNER_URL: process.env['CODE_RUNNER_URL'],
     CODE_RUNNER_API_KEY: process.env['CODE_RUNNER_API_KEY'],
   });
@@ -52,6 +60,10 @@ function validateEnvironment() {
       console.error('❌ PRODUCTION SECURITY ERROR: JWT_SECRET must be at least 32 characters in production.');
       process.exit(1);
     }
+    if (!process.env['JWT_REFRESH_SECRET'] || process.env['JWT_REFRESH_SECRET'].length < 32) {
+      console.error('❌ PRODUCTION SECURITY ERROR: JWT_REFRESH_SECRET must be at least 32 characters in production.');
+      process.exit(1);
+    }
   }
 
   return {
@@ -61,6 +73,8 @@ function validateEnvironment() {
     databaseUrl: data.DATABASE_URL,
     jwtSecret: data.JWT_SECRET,
     jwtExpiresIn: data.JWT_EXPIRES_IN,
+    jwtRefreshSecret: data.JWT_REFRESH_SECRET || data.JWT_SECRET + '_refresh',
+    jwtRefreshExpiresIn: data.JWT_REFRESH_EXPIRES_IN,
     codeRunnerUrl: data.CODE_RUNNER_URL,
     codeRunnerApiKey: data.CODE_RUNNER_API_KEY,
   };
@@ -73,6 +87,8 @@ export interface Config {
   databaseUrl: string;
   jwtSecret: string;
   jwtExpiresIn: string;
+  jwtRefreshSecret: string;
+  jwtRefreshExpiresIn: string;
   codeRunnerUrl: string;
   codeRunnerApiKey: string;
 }

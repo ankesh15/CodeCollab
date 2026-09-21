@@ -42,7 +42,7 @@ router.get('/ready', async (_req: Request, res: Response<ApiResponse>) => {
       timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Database query failed';
+    console.error('[Readiness Check Error]:', err instanceof Error ? err.message : err);
     res.status(503).json({
       success: false,
       message: 'CodeCollab Backend Service is not ready to serve traffic.',
@@ -50,7 +50,6 @@ router.get('/ready', async (_req: Request, res: Response<ApiResponse>) => {
       data: {
         status: 'not_ready',
         database: 'disconnected',
-        details: errorMsg,
       },
       timestamp: new Date().toISOString(),
     });

@@ -79,9 +79,10 @@ export async function updateDocument(
         ...(language ? { language } : {}),
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // If room was deleted while debounce timer was pending, exit cleanly
-    if (err?.statusCode === 404 || err?.code === 'P2003' || err?.code === 'P2025') {
+    const error = err as { statusCode?: number; code?: string };
+    if (error?.statusCode === 404 || error?.code === 'P2003' || error?.code === 'P2025') {
       return null;
     }
     throw err;

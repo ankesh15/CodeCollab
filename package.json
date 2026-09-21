@@ -33,6 +33,23 @@
     "prettier": "^3.3.3",
     "typescript": "^5.5.4"
   },
+  "overrides": {
+    "js-yaml": "^4.3.2",
+    "qs": "^6.16.0",
+    "express": {
+      "qs": "^6.16.0",
+      "body-parser": {
+        "qs": "^6.16.0"
+      }
+    },
+    "body-parser": {
+      "qs": "^6.16.0"
+    },
+    "monaco-editor": {
+      "dompurify": "^3.4.15"
+    },
+    "dompurify": "^3.4.15"
+  },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"

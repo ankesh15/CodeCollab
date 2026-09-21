@@ -7,10 +7,9 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-codecollab_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codecollab_prod_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided in production}
       POSTGRES_DB: ${POSTGRES_DB:-codecollab_db}
-    ports:
-      - "5432:5432"
+    # PostgreSQL is deliberately not exposed to the host network in production
     volumes:
       - prod_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -31,13 +30,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-codecollab_user}:${POSTGRES_PASSWORD:-codecollab_prod_pass}@postgres:5432/${POSTGRES_DB:-codecollab_db}?schema=public
-      JWT_SECRET: ${JWT_SECRET:-production_super_secret_jwt_key_at_least_32_chars_long!}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-codecollab_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided in production}@postgres:5432/${POSTGRES_DB:-codecollab_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be provided in production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be provided in production}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost}
-      CODE_RUNNER_URL: ${CODE_RUNNER_URL:-https://judge0-ce.p.rapidapi.com}
-      CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-dev_key}
-    ports:
-      - "5000:5000"
+      CODE_RUNNER_URL: ${CODE_RUNNER_URL:-https://ce.judge0.com}
+      CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-}
+    # Node server is deliberately not exposed to the host network in production; Nginx is the sole reverse proxy gateway
 
   web:
     build:

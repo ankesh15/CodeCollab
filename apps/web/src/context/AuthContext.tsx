@@ -8,7 +8,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (token: string, user: SafeUser) => void;
+  login: (token: string, user: SafeUser, refreshToken?: string) => void;
   logout: () => void;
   updateUser: (updatedUser: SafeUser) => void;
 }
@@ -21,14 +21,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const logout = useCallback(() => {
+    const refreshToken = localStorage.getItem('codecollab_refresh_token');
+    if (refreshToken) {
+      fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      }).catch(() => {});
+    }
+
     localStorage.removeItem('codecollab_token');
+    localStorage.removeItem('codecollab_refresh_token');
     setToken(null);
     setUser(null);
     disconnectSocket();
   }, []);
 
-  const login = useCallback((newToken: string, newUser: SafeUser) => {
+  const login = useCallback((newToken: string, newUser: SafeUser, newRefreshToken?: string) => {
     localStorage.setItem('codecollab_token', newToken);
+    if (newRefreshToken) {
+      localStorage.setItem('codecollab_refresh_token', newRefreshToken);
+    }
     setToken(newToken);
     setUser(newUser);
   }, []);
@@ -53,6 +66,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.ok) {
         const data = await response.json();
         setUser(data.data.user);
+      } else if (response.status === 401) {
+        // Attempt silent token refresh
+        const refreshToken = localStorage.getItem('codecollab_refresh_token');
+        if (refreshToken) {
+          const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          });
+
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            const newAccessToken = refreshData.data.token;
+            const rotatedRefreshToken = refreshData.data.refreshToken;
+
+            localStorage.setItem('codecollab_token', newAccessToken);
+            localStorage.setItem('codecollab_refresh_token', rotatedRefreshToken);
+            setToken(newAccessToken);
+
+            // Retry auth/me with new token
+            const retryRes = await fetch(`${API_BASE_URL}/auth/me`, {
+              headers: { Authorization: `Bearer ${newAccessToken}` },
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              setUser(retryData.data.user);
+              return;
+            }
+          }
+        }
+        logout();
       } else {
         logout();
       }
