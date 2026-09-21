@@ -20,31 +20,28 @@ Repository: [https://github.com/ankesh15/CodeCollab](https://github.com/ankesh15
 ## Table of Contents
 
 - [Product Overview](#product-overview)
-- [Why CodeCollab?](#why-codecollab)
-- [Features](#features)
-- [User Flow](#user-flow)
-- [Admin Workflow](#admin-workflow)
-- [Tech Stack](#tech-stack)
-- [Architecture](#architecture)
-- [Database Overview](#database-overview)
-- [Security & Engineering](#security--engineering)
+- [Feature Implementation Status](#feature-implementation-status)
+  - [Real / Working Features](#real--working-features)
+  - [Partial Features](#partial-features)
+  - [Simulated Features](#simulated-features)
+  - [Current Limitations & Architectural Constraints](#current-limitations--architectural-constraints)
+- [Architecture & Tech Stack](#architecture--tech-stack)
+- [Database Schema & Performance](#database-schema--performance)
+- [Security Engineering](#security-engineering)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Environment Variables](#environment-variables)
   - [Database Setup](#database-setup)
-  - [Running the Application](#running-the-application)
-- [Development Admin Account](#development-admin-account)
+  - [Running Locally](#running-locally)
 - [Testing & Verification](#testing--verification)
-- [Docker Deployment](#docker-deployment)
+- [Docker Production Deployment](#docker-production-deployment)
 - [CI/CD Pipeline](#cicd-pipeline)
-- [API Overview](#api-overview)
-- [Real-Time Architecture](#real-time-architecture)
-- [Code Execution](#code-execution)
-- [Roadmap](#roadmap)
+- [API Reference](#api-reference)
+- [Real-Time Signaling & Sockets](#real-time-signaling--sockets)
+- [Code Execution Pipeline (Judge0)](#code-execution-pipeline-judge0)
 - [Contributing](#contributing)
-- [What I Built](#what-i-built)
 - [License](#license)
 
 ---
@@ -61,7 +58,7 @@ CodeCollab provides a full-stack, monorepo-based workspace that merges competiti
 │                                   │ - Real-time synchronization             │
 │ - Difficulty & Tags               │ - Multi-cursor & selection tracking     │
 │ - Input / Output Formats          │ - C++, Python, JavaScript support       │
-│ - Sample & Hidden Test Cases      │                                         │
+│ - Sample & Hidden Test Cases      │ - Version conflict rejection            │
 ├───────────────────────────────────┼─────────────────────────────────────────┤
 │ Test Case Evaluation Panel        │ Real-Time Room Chat & Activity Feed    │
 │ - Run Sample Tests                │ - Member presence indicators            │
@@ -72,202 +69,78 @@ CodeCollab provides a full-stack, monorepo-based workspace that merges competiti
 
 ---
 
-## Why CodeCollab?
+## Feature Implementation Status
 
-Traditional competitive programming platforms are optimized strictly for individual practice. When developers want to pair-program, interview, or solve algorithmic challenges together, they must switch between separate code editors, screen-sharing tools, external chat applications, and manual code execution environments.
+### Real / Working Features
 
-CodeCollab solves this friction by consolidating problem reading, real-time code collaboration, multi-language sandboxed execution, room communication, and user analytics into a unified web application.
+- **JWT Authentication Lifecycle**: Short-lived access tokens (`15m`), long-lived refresh tokens (`7d`) stored strictly as SHA-256 hashes in PostgreSQL. Full refresh rotation with token theft reuse detection, server-side logout revocation, password-change invalidation, and account deactivation controls.
+- **Role-Based Access Control (RBAC)**: Database-backed authorization for `USER` and `ADMIN` roles. Non-admins cannot access admin endpoints even with forged claims.
+- **Problem Management**: Draft and published lifecycles for problems. Problem publication enforces at least 1 public and 1 hidden test case.
+- **Hidden Test Case Isolation**: Non-admin users never receive hidden test inputs, outputs, execution times, or memory stats in responses.
+- **Transactional Room Lifecycle**: Room creation atomically inserts Room, owner RoomMember (`OWNER`), and initial CodeDocument. Safe leave transfers ownership to next oldest member or cleanly deletes empty rooms with cascaded dependencies.
+- **Public & Private Room Authorization**: Authenticated users can view and join public rooms; private rooms enforce strict membership checks.
+- **Collaborative Editor**: Monaco Editor synchronized over Socket.IO with monotonic version tracking, conflict rejection (`DOCUMENT_VERSION_CONFLICT`), auto-resync, and remote cursor decorations.
+- **Real Sandboxed Execution**: Powered by Judge0 with Base64 encoding/decoding, strict language allowlist (`cpp`, `javascript`, `python`), 64 KB code/stdin limits, and 10 KB output truncation. Runner failures deterministically record `SYSTEM_ERROR` without fake fallback overrides.
+- **Persistent Room Chat**: Real-time room messaging over Socket.IO with PostgreSQL persistence, 2,000-character payload limits, and spam rate limiting.
+- **Real-Time Notifications**: Unread counter badges, instant WebSocket delivery, bulk mark-as-read, and automatic trigger on submission results.
+- **Scalable Leaderboard**: PostgreSQL window function query (`ROW_NUMBER() OVER (...)`) with database-side pagination (`LIMIT`/`OFFSET`) executing in ~11ms.
+- **Analytics Engine**: 30-day activity calendar aggregated database-side in UTC using `TO_CHAR(createdAt AT TIME ZONE 'UTC', 'YYYY-MM-DD')`.
+- **Express Trust Proxy & Rate Limiting**: `trust proxy: 1` configured for Nginx reverse proxy topology; fine-grained tiered rate limiters for auth, refresh, submissions, analytics, imports, and chat.
 
----
+### Partial Features
 
-## Features
+- **Codeforces Problem Import**: Imports problem statements, tags, and sample test cases via the official Codeforces API. Imported problems are created in `DRAFT` status and require at least one hidden test case before an admin can publish them.
 
-| Feature | Description |
-|---|---|
-| **Authentication** | JWT-based stateless authentication supporting login via email or username |
-| **Role-Based Access (RBAC)** | Strict server-enforced `USER` and `ADMIN` permission policies |
-| **Problem Library** | Categorized coding challenges with difficulty tiers, tags, and constraints |
-| **Admin Problem Management** | Full CRUD for problems, including draft/published states and status controls |
-| **Codeforces Import** | Automated problem metadata importer using the official Codeforces API |
-| **Test Case Management** | Public sample test cases and hidden evaluation test cases per problem |
-| **Collaborative Editor** | Monaco-based code workspace with syntax highlighting and theme support |
-| **Real-Time Sync** | Socket.IO code synchronization with monotonic version conflict resolution |
-| **Secure Execution** | Isolated multi-language code execution powered by Judge0 sandbox API |
-| **Submissions** | Code submission pipeline with runtime, memory profiling, and status tracking |
-| **Room Chat** | Real-time persistent room messaging with unread badges and pagination |
-| **Notifications** | Real-time Socket.IO and persistent database notification system |
-| **Leaderboards** | Global and room-level rankings based on accepted problem count and points |
-| **Analytics Engine** | User profile submission activity heatmaps and difficulty breakdowns |
-| **Security & Reliability** | Helmet headers, CORS policies, tiered rate limiting, and sanitized error outputs |
-| **Docker Infrastructure** | Multi-stage Docker builds and production Docker Compose configuration |
-| **CI/CD Pipeline** | GitHub Actions workflow executing type checking, linting, seeding, and verification suites |
+### Simulated Features
 
----
+- **NONE**: All fake execution fallbacks (`fallbackSandboxExecution`) were completely eliminated in Phase 0. All code execution executes against real Judge0 sandboxes.
 
-## User Flow
+### Current Limitations & Architectural Constraints
 
-### Solo & Room Practice Flow
-
-```
-Landing Page
-    │
-    ▼
-Register / Login (Email or Username)
-    │
-    ▼
-Profile / Problems Library
-    │
-    ├───────────────────────────────┐
-    ▼                               ▼
-Solo Practice                     Room Session (Create / Join)
-    │                               │
-    ▼                               ▼
-Monaco Editor               Collaborative Monaco Editor
-    │                        (Real-time Code & Cursor Sync + Chat)
-    │                               │
-    └───────────────┬───────────────┘
-                    │
-                    ▼
-          Run Sample / Submit Code
-                    │
-                    ▼
-             Judge0 Sandbox
-                    │
-                    ▼
-     Execution Result & Test Evaluation
-                    │
-                    ▼
-     Profile Analytics & Leaderboard Update
-```
+- **Single-Instance Deployment**: Real-time room presence and editor caches (`presenceManager`, `documentVersionCache`, debounce timers) currently reside in Node.js server memory. Running multiple horizontal backend replicas requires integrating `@socket.io/redis-adapter` and a distributed Redis cache.
+- **Judge0 Service Dependency**: Code execution requires a reachable Judge0 instance. By default, the application connects to public `https://ce.judge0.com`. For production deployments, a dedicated self-hosted Judge0 instance (ports `2358`/`2359`) is recommended.
+- **AI-Assisted Features**: AI hint generation and code explanations are intentionally deferred and not yet implemented.
 
 ---
 
-## Admin Workflow
+## Architecture & Tech Stack
 
-Only authenticated users with the `ADMIN` role can access problem management tools.
-
-```
-Admin User Login
-    │
-    ▼
-Admin Panel (/admin/problems)
-    │
-    ├─────────────────────────────────────────┐
-    ▼                                         ▼
-Create Problem Manually                   Import from Codeforces API
-    │                                         │
-    └────────────────────┬────────────────────┘
-                         │
-                         ▼
-             Add Public & Hidden Test Cases
-                         │
-                         ▼
-                    Save as DRAFT
-              (Hidden from public library)
-                         │
-                         ▼
-                  Publish Problem
-                         │
-                         ▼
-             Available in Public Library
-```
-
-> [!NOTE]
-> Draft problems are strictly hidden from standard users and public API endpoints until published by an Admin.
+- **Monorepo**: npm workspaces (`apps/server`, `apps/web`, `packages/shared`)
+- **Backend API**: Node.js 20, Express 4, TypeScript 5, Prisma 5, Socket.IO 4, Helmet, bcrypt, jsonwebtoken, express-rate-limit, Zod
+- **Frontend App**: React 18, Vite 5, Tailwind CSS, Monaco Editor (`@monaco-editor/react`), Lucide React, Socket.IO Client
+- **Shared Workspace**: TypeScript types, DTO contracts, event names, language enums
+- **Database**: PostgreSQL 16
+- **Reverse Proxy**: Nginx (Alpine) with SPA routing, WebSocket upgrade support, and API proxying
 
 ---
 
-## Tech Stack
+## Database Schema & Performance
 
-| Layer | Technologies Used |
-|---|---|
-| **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS, Monaco Editor (`@monaco-editor/react`), React Router v6, Lucide Icons |
-| **Backend** | Node.js 20, Express.js 4, TypeScript, Socket.IO 4, JWT (`jsonwebtoken`), Zod, bcrypt |
-| **Database** | PostgreSQL 16, Prisma ORM 5 |
-| **Code Execution** | Judge0 API (Sandboxed C++, Python 3, JavaScript execution) |
-| **Infrastructure** | Docker, Nginx, Docker Compose, GitHub Actions CI |
-| **Monorepo Tools** | npm Workspaces (`apps/web`, `apps/server`, `packages/shared`) |
+The PostgreSQL relational schema managed via Prisma (`apps/server/prisma/schema.prisma`) includes:
 
----
-
-## Architecture
-
-```
-                    ┌──────────────────────────────────┐
-                    │            React Web             │
-                    │    (Vite + TypeScript + SPA)     │
-                    └────────────────┬─────────────────┘
-                                     │
-                             HTTP / WebSockets
-                                     │
-                                     ▼
-                    ┌──────────────────────────────────┐
-                    │       Express API Server         │
-                    │   (Node.js + Socket.IO + JWT)    │
-                    └────────┬─────────┬─────────┬─────┘
-                             │         │         │
-                             ▼         │         ▼
-                    ┌──────────────┐   │   ┌──────────────┐
-                    │  PostgreSQL  │   │   │  Socket.IO   │
-                    │ (Prisma ORM) │   │   │  Real-Time   │
-                    └──────────────┘   │   └──────────────┘
-                                       ▼
-                                ┌──────────────┐
-                                │    Judge0    │
-                                │ Sandbox API  │
-                                └──────────────┘
-```
+- `User`: Accounts, credentials (`passwordHash`), roles (`USER`, `ADMIN`), active status (`isActive`), and timestamps.
+- `RefreshToken`: Cryptographic SHA-256 token hashes (`tokenHash`), expiration dates, revocation timestamps (`revokedAt`), and indexed on `[userId, expiresAt]`.
+- `Problem`: Challenge statements, difficulty, tags, status (`DRAFT`, `PUBLISHED`), source (`INTERNAL`, `CODEFORCES`).
+- `TestCase`: Problem test cases, flagged as public sample or hidden, with inputs and expected outputs.
+- `Room`: Collaborative coding rooms, privacy settings (`isPrivate`), languages, and owner relation.
+- `RoomMember`: Room memberships with roles (`OWNER`, `ADMIN`, `MEMBER`) and unique constraint `@@unique([roomId, userId])`.
+- `CodeDocument`: Room editor documents with monotonically increasing version numbers (`version`) and starter code.
+- `Submission`: Code submissions, language, status, execution metrics, composite indexes `@@index([userId, status, problemId])` and `@@index([status, createdAt])`.
+- `Message`: Persistent room chat messages.
+- `Notification`: User notifications with read status.
 
 ---
 
-## Database Overview
+## Security Engineering
 
-The relational PostgreSQL database is managed via Prisma ORM and contains 9 core models:
-
-```
-┌──────────┐       1:N       ┌──────────┐       1:N       ┌──────────────┐
-│   User   ├─────────────────┤   Room   ├─────────────────┤ CodeDocument │
-└────┬─────┘                 └────┬─────┘                 └──────────────┘
-     │                            │
-     │ 1:N                        │ 1:N
-     ▼                            ▼
-┌────────────┐               ┌──────────┐
-│ Submission │               │ Message  │
-└────┬───────┘               └──────────┘
-     │
-     │ N:1
-     ▼
-┌────────────┐       1:N       ┌──────────┐
-│  Problem   ├─────────────────┤ TestCase │
-└────────────┘                 └──────────┘
-```
-
-- **User**: Authentication credentials, hashed password, role (`USER` | `ADMIN`), profile details.
-- **Room**: Collaboration room configuration, owner reference, default language, privacy flag.
-- **CodeDocument**: Room document state, language, and integer version for conflict resolution.
-- **RoomMember**: Junction table managing room membership and room roles (`OWNER`, `ADMIN`, `MEMBER`).
-- **Problem**: Problem statement, difficulty (`EASY`, `MEDIUM`, `HARD`), constraints, status (`DRAFT`, `PUBLISHED`).
-- **TestCase**: Evaluation test cases linked to problems, marked as public sample or hidden.
-- **Submission**: Execution record storing code, language, status result, runtime, and memory metrics.
-- **Message**: Persistent room chat messages.
-- **Notification**: System and user notification records (`ROOM_INVITE`, `SUBMISSION_RESULT`, etc.).
-
----
-
-## Security & Engineering
-
-CodeCollab enforces security at the backend boundary:
-
-- **Database-Backed Authorization**: Privilege checks (such as Admin operations) perform authoritative database lookups rather than trusting JWT payload claims alone.
-- **Stateless JWT Authentication**: Secure token verification with strict expiration and user identity validation.
-- **Security Headers**: Express application hardened with `helmet` for HTTP header protection.
-- **CORS Restrictions**: Configured origin validation for API and Socket.IO servers.
-- **Tiered Rate Limiting**: Endpoint rate limiting to protect authentication and code submission endpoints from abuse.
-- **Request Tracing**: Unique `X-Request-ID` generation per request for distributed logging and correlation.
-- **Data Redaction**: Logger automatically redacts sensitive fields like `password`, `token`, and `passwordHash`.
-- **Hidden Test Case Isolation**: Hidden test inputs and expected outputs are never exposed to non-admin client APIs.
-- **Socket Guards**: Socket.IO payload size limits and rapid-fire event rate limiters prevent socket spamming.
-- **Sandboxed Execution**: User code runs inside isolated containers managed by Judge0 with execution timeouts.
+- **No Raw Refresh Tokens**: Refresh tokens are stored strictly as SHA-256 hashes in PostgreSQL.
+- **Refresh Rotation & Theft Reuse Detection**: Re-using an already-revoked refresh token invalidates all active sessions for that user family.
+- **Bcrypt DoS Defense**: Strict 128-character maximum length prevents compute-heavy hashing denial of service.
+- **Registration Race Handling**: Clean interception of Prisma `P2002` uniqueness constraints returns 409 Conflict instead of 500 errors.
+- **Express Trust Proxy**: `trust proxy: 1` correctly forwards real client IPs from Nginx `X-Forwarded-For`.
+- **Strict Production CORS**: Rejects unauthorized or missing origins in production with HTTP 403.
+- **Information Leakage Sanitization**: `/api/ready` and database health probes suppress internal credentials, hostnames, and stack traces.
+- **Production Docker Isolation**: Internal PostgreSQL (`5432`) and Node API (`5000`) ports are not bound to the host. Only Nginx (`8080:80`) is exposed publicly. Missing secrets fail deployment immediately via `${VAR:?error}`.
 
 ---
 
@@ -277,41 +150,35 @@ CodeCollab enforces security at the backend boundary:
 CodeCollab/
 ├── apps/
 │   ├── server/                   # Express REST API & Socket.IO server
-│   │   ├── prisma/               # Database schema, migrations, and seeds
-│   │   │   ├── migrations/
-│   │   │   ├── schema.prisma
-│   │   │   └── seed.ts
+│   │   ├── prisma/               # Schema, migrations, seeds
 │   │   ├── src/
-│   │   │   ├── config/           # Environment and security configuration
-│   │   │   ├── controllers/      # Route handler logic
-│   │   │   ├── middlewares/      # Auth, RBAC, error, and logging middlewares
-│   │   │   ├── routes/           # REST API endpoints
+│   │   │   ├── config/           # Environment, rate-limiting, execution config
+│   │   │   ├── controllers/      # Route controllers
+│   │   │   ├── middlewares/      # Authentication, RBAC, error handling
+│   │   │   ├── routes/           # REST endpoints
 │   │   │   ├── schemas/          # Zod validation schemas
 │   │   │   ├── scripts/          # Automated verification test suite
-│   │   │   ├── services/         # Business logic & external API services
-│   │   │   ├── socket/           # Socket.IO handlers (presence, editor, chat)
-│   │   │   └── utils/            # JWT, logger, and comparator utilities
+│   │   │   ├── services/         # Business logic & Judge0 sandbox client
+│   │   │   └── socket/           # Socket.IO handlers
 │   │   ├── Dockerfile
 │   │   └── package.json
-│   └── web/                      # React SPA web application
+│   └── web/                      # React SPA client
 │       ├── src/
-│       │   ├── components/       # Reusable UI components
-│       │   ├── context/          # Auth state provider
-│       │   ├── lib/              # API and Socket.IO client instances
-│       │   └── pages/            # Application routes & workspace views
+│       │   ├── components/       # Monaco editor, room chat, navbar, UI cards
+│       │   ├── context/          # Auth context with silent refresh
+│       │   ├── lib/              # API client and Socket.IO singleton
+│       │   └── pages/            # Application pages
+│       ├── test/                 # Frontend contract & static verification
 │       ├── Dockerfile
 │       ├── nginx.conf
-│       ├── tailwind.config.js
 │       └── package.json
 ├── packages/
-│   └── shared/                   # Shared TypeScript types and contracts
+│   └── shared/                   # Shared TypeScript contracts & DTOs
 ├── .github/
 │   └── workflows/                # GitHub Actions CI pipeline
-│       └── ci.yml
-├── docker-compose.yml            # Local development database orchestration
-├── docker-compose.prod.yml       # Production stack orchestration
+├── docker-compose.yml            # Local PostgreSQL service
+├── docker-compose.prod.yml       # Production stack (Postgres, Server, Web)
 ├── .env.example                  # Environment configuration template
-├── package.json                  # Root monorepo workspace configuration
 └── README.md
 ```
 
@@ -323,11 +190,10 @@ CodeCollab/
 
 - **Node.js**: `v20.x` or higher
 - **npm**: `v9.x` or higher
-- **PostgreSQL**: `v16.x` (Running locally or via Docker)
+- **PostgreSQL**: `v16.x` (or Docker)
+- **Docker & Docker Compose**: Recommended for database and production builds
 
 ### Installation
-
-Clone the repository and install all monorepo dependencies:
 
 ```bash
 git clone https://github.com/ankesh15/CodeCollab.git
@@ -343,7 +209,7 @@ Copy the environment template:
 cp .env.example .env
 ```
 
-Configure your local `.env` variables as needed:
+Configure `.env`:
 
 ```env
 # Server Configuration
@@ -352,289 +218,259 @@ NODE_ENV=development
 
 # Database Configuration (PostgreSQL)
 POSTGRES_USER=codecollab_user
-POSTGRES_PASSWORD=your_secure_postgres_password_here
+POSTGRES_PASSWORD=codecollab_dev_pass
 POSTGRES_DB=codecollab_db
 POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
+POSTGRES_PORT=5433
 
-# Prisma Database Connection URL
+# Prisma Database URL
 DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?schema=public
 
-# JWT Authentication Secrets
-JWT_SECRET=your_jwt_secret_key_change_in_production
-JWT_EXPIRES_IN=7d
+# JWT Secrets (Minimum 32 characters in production)
+JWT_SECRET=super_secret_jwt_access_token_key_at_least_32_chars!
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_SECRET=super_secret_jwt_refresh_token_key_at_least_32_chars!
+JWT_REFRESH_EXPIRES_IN=7d
 
 # Client Configuration
 VITE_API_BASE_URL=http://localhost:5000/api
 CORS_ORIGIN=http://localhost:5173
 
-# Sandboxed Code Execution Service Configuration
+# Sandboxed Code Execution Service (Judge0)
 CODE_RUNNER_URL=https://ce.judge0.com
-CODE_RUNNER_API_KEY=your_optional_judge0_api_key
+CODE_RUNNER_API_KEY=
 ```
 
 ### Database Setup
 
-1. Start the PostgreSQL database container (or use a local instance):
-
+1. Start PostgreSQL:
 ```bash
 npm run db:up
 ```
 
-2. Generate the Prisma Client and run migrations:
-
+2. Generate Prisma Client and apply schema:
 ```bash
 npm run db:generate
 npm run db:migrate
 ```
 
-3. Seed initial development data (users, rooms, problems, and test cases):
-
+3. Seed initial development users, problems, and rooms:
 ```bash
 npm run db:seed --workspace=apps/server
 ```
 
-### Running the Application
+### Running Locally
 
-Start both the backend server and frontend development server concurrently:
+Start backend and frontend development servers concurrently:
 
 ```bash
 npm run dev
 ```
 
-- **Frontend Application**: `http://localhost:5173`
-- **Backend REST API**: `http://localhost:5000/api`
-- **API Health Probe**: `http://localhost:5000/api/health`
-
----
-
-## Development Admin Account
-
-The database seed script initializes a default development Admin account for testing administrative capabilities (creating/editing problems, importing Codeforces challenges, and managing test cases).
-
-Refer to the seed configuration (`apps/server/prisma/seed.ts`) for local development credentials.
+- **Frontend App**: `http://localhost:5173`
+- **Backend API**: `http://localhost:5000/api`
+- **Health Check**: `http://localhost:5000/api/health`
 
 ---
 
 ## Testing & Verification
 
-CodeCollab includes automated verification test scripts located in `apps/server/src/scripts/` that validate system subsystems:
-
-### Code Quality Commands
+CodeCollab includes a complete automated test and verification suite:
 
 ```bash
-# Monorepo strict type-check
+# Run core test suites (P2 security suite + Frontend contract suite)
+npm test
+
+# Run all 15 automated verification test suites
+npm run test:all
+
+# Individual verification scripts:
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-db.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-auth.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-admin-role.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-admin-problems.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-socket.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-editor.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-chat.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-notifications.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-analytics.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-security.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-p0-execution.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-p1-rooms.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-p2-security.ts
+npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-e2e.ts
+node apps/web/test/verify-frontend.mjs
+
+# Strict TypeScript type check across all workspaces
 npm run type-check
 
-# Monorepo lint check
+# ESLint standard verification
 npm run lint
 
-# Compile production builds
+# Production bundle compilation
 npm run build
-```
-
-### Verification Test Scripts
-
-```bash
-cd apps/server
-
-# Database connectivity and schema constraints
-npx ts-node src/scripts/verify-db.ts
-
-# Authentication, JWT, and email/username login flows
-npx ts-node src/scripts/verify-auth.ts
-
-# Admin RBAC permission enforcement
-npx ts-node src/scripts/verify-admin-role.ts
-
-# Admin problem CRUD and Codeforces import
-npx ts-node src/scripts/verify-admin-problems.ts
-
-# Real-time Socket.IO signaling and presence
-npx ts-node src/scripts/verify-socket.ts
-
-# Collaborative Monaco editor versioning and sync
-npx ts-node src/scripts/verify-editor.ts
-
-# Code execution and Judge0 submission pipeline
-npx ts-node src/scripts/verify-submission.ts
-
-# Room chat persistence and events
-npx ts-node src/scripts/verify-chat.ts
-
-# Real-time and persistent notifications
-npx ts-node src/scripts/verify-notifications.ts
-
-# Analytics aggregation and leaderboards
-npx ts-node src/scripts/verify-analytics.ts
-
-# Rate-limiting, security headers, and error sanitization
-npx ts-node src/scripts/verify-security.ts
-
-# Multi-user End-to-End integration test suite
-npx ts-node src/scripts/verify-e2e.ts
 ```
 
 ---
 
-## Docker Deployment
+## Docker Production Deployment
 
-To launch the full production environment using Docker Compose:
+To run the complete production topology:
 
 ```bash
-# Build and start all production services (PostgreSQL, Express Server, Nginx Web Server)
-docker-compose -f docker-compose.prod.yml up --build -d
+# Provide mandatory production secrets in your environment or .env:
+export POSTGRES_PASSWORD=your_secure_password
+export JWT_SECRET=your_32_char_production_access_secret!
+export JWT_REFRESH_SECRET=your_32_char_production_refresh_secret!
 
-# Check service logs
-docker-compose -f docker-compose.prod.yml logs -f
+# Build and start services in background
+docker compose -f docker-compose.prod.yml up --build -d
 
-# Verify API health
-curl http://localhost:5000/api/health
+# Check running services
+docker compose -f docker-compose.prod.yml ps
 
-# Stop production containers
-docker-compose -f docker-compose.prod.yml down
+# View unified logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Stop containers
+docker compose -f docker-compose.prod.yml down
 ```
+
+In production, **only port 8080** (Nginx) is exposed to the public host. PostgreSQL (5432) and Node.js (5000) remain strictly private on the internal Docker network.
 
 ---
 
 ## CI/CD Pipeline
 
-CodeCollab uses GitHub Actions (`.github/workflows/ci.yml`) to enforce code quality on every push and pull request to `main`:
+The GitHub Actions CI workflow (`.github/workflows/ci.yml`) runs on every commit and PR to `main`:
 
-1. **Environment Setup**: Provisions Node.js 20 with dependency caching and a PostgreSQL 16 service container.
-2. **Type Checking & Linting**: Executes `npm run type-check` and `npm run lint`.
-3. **Database Migration & Seeding**: Runs Prisma migrations and seeds test data against the test database.
-4. **Verification Suites**: Executes automated verification scripts (`verify-db`, `verify-auth`, `verify-socket`, `verify-editor`, `verify-submission`, `verify-chat`, `verify-notifications`, `verify-analytics`, `verify-security`).
-5. **Docker Build Validation**: Validates multi-stage Docker builds for `apps/server` and `apps/web`.
+1. Installs monorepo dependencies (`npm ci`).
+2. Generates the Prisma client.
+3. Builds the shared contracts package.
+4. Executes strict TypeScript type-checking across all packages (`npm run type-check`).
+5. Runs ESLint code standards verification (`npm run lint`).
+6. Provisions a PostgreSQL 16 service container, pushes the schema, and seeds test data.
+7. Compiles production builds (`npm run build`).
+8. Executes all automated verification test suites.
+9. Builds multi-stage Docker container images for `apps/server` and `apps/web`.
 
 ---
 
-## API Overview
+## API Reference
 
 ### Authentication (`/api/auth`)
-- `POST /api/auth/register` — Register new user account
+- `POST /api/auth/register` — Register new user account (returns access token & refresh token)
 - `POST /api/auth/login` — Authenticate via email or username
+- `POST /api/auth/refresh` — Rotate refresh token and issue new access token
+- `POST /api/auth/logout` — Revoke active refresh token on server
+- `POST /api/auth/change-password` — Change password and invalidate all active user sessions
+- `POST /api/auth/deactivate` — Deactivate account and revoke all tokens
 - `GET /api/auth/me` — Fetch current user profile
-
-### Problems (`/api/problems`)
-- `GET /api/problems` — List published coding problems (supports difficulty/tag filters)
-- `GET /api/problems/:id` — Retrieve published problem details and sample test cases
-
-### Admin Problem Management (`/api/admin/problems`)
-- `GET /api/admin/problems` — List all draft and published problems
-- `POST /api/admin/problems` — Create new problem statement
-- `GET /api/admin/problems/:id` — Retrieve problem details (including hidden test cases)
-- `PUT /api/admin/problems/:id` — Update problem metadata
-- `DELETE /api/admin/problems/:id` — Delete problem
-- `PATCH /api/admin/problems/:id/publish` — Toggle problem publication status (`DRAFT` / `PUBLISHED`)
-- `POST /api/admin/problems/:id/test-cases` — Create test case for problem
-- `POST /api/admin/problems/import/codeforces` — Import problem metadata from Codeforces API
+- `PATCH /api/auth/me` — Update username or profile details (strictly validated)
 
 ### Rooms (`/api/rooms`)
 - `GET /api/rooms` — List public coding rooms
-- `POST /api/rooms` — Create new collaboration room
-- `GET /api/rooms/:id` — Retrieve room details and code document
-- `POST /api/rooms/:id/join` — Join room membership
-- `DELETE /api/rooms/:id/leave` — Leave room
+- `POST /api/rooms` — Atomically create room, owner membership, and initial document
+- `GET /api/rooms/:roomId` — Retrieve room metadata (public read permitted for public rooms)
+- `PATCH /api/rooms/:roomId` — Update room settings (owner or admin only)
+- `DELETE /api/rooms/:roomId` — Delete room and cascade dependencies (owner or admin only)
+- `POST /api/rooms/:roomId/join` — Join room idempotently
+- `POST /api/rooms/:roomId/leave` — Leave room (handles member leave, owner transfer, or room cleanup)
+- `GET /api/rooms/:roomId/document` — Fetch room code document
+- `PATCH /api/rooms/:roomId/document/language` — Update editor document language
+- `GET /api/rooms/:roomId/messages` — Fetch paginated room chat messages
+- `DELETE /api/messages/:messageId` — Delete room chat message (author, owner, or admin)
+- `GET /api/rooms/:roomId/leaderboard` — Fetch room-specific problem leaderboard
+
+### Problems (`/api/problems`)
+- `GET /api/problems` — List published coding problems
+- `GET /api/problems/:problemId` — Retrieve published problem statement and sample test cases
+- `GET /api/problems/:problemId/statistics` — Retrieve problem solve and submission statistics
 
 ### Submissions (`/api/submissions`)
-- `POST /api/submissions/run` — Run code against sample test cases via Judge0
-- `POST /api/submissions/submit` — Submit code for full test suite evaluation
-- `GET /api/submissions` — Retrieve submission history
-- `GET /api/submissions/:id` — Retrieve specific submission details
+- `POST /api/submissions/run` — Run code against public sample test cases via Judge0
+- `POST /api/submissions` — Submit code for full evaluation against public and hidden test cases
+- `GET /api/submissions/problem/:problemId` — Retrieve user submission history for problem
 
-### Analytics & Leaderboards (`/api/analytics`)
-- `GET /api/analytics/user` — Fetch user submission statistics and activity metrics
-- `GET /api/analytics/leaderboard` — Retrieve global user rankings
+### Analytics & Leaderboards (`/api/leaderboard`, `/api/analytics`)
+- `GET /api/leaderboard` — Global user ranking via PostgreSQL window function with pagination
+- `GET /api/analytics/me` — Fetch personal submission statistics and rank
+- `GET /api/analytics/me/activity` — 30-day activity heatmap aggregated database-side in UTC
 
 ### Notifications (`/api/notifications`)
-- `GET /api/notifications` — Fetch user notifications
-- `GET /api/notifications/unread-count` — Get count of unread notifications
-- `PATCH /api/notifications/:id/read` — Mark specific notification as read
-- `PATCH /api/notifications/read-all` — Mark all notifications as read
+- `GET /api/notifications` — Fetch paginated user notifications
+- `GET /api/notifications/unread-count` — Fetch unread count badge number
+- `PATCH /api/notifications/:id/read` — Mark single notification as read
+- `PATCH /api/notifications/read-all` — Bulk mark all notifications as read
+
+### Admin (`/api/admin`)
+- `GET /api/admin/problems` — List all draft and published problems
+- `POST /api/admin/problems` — Create new problem in `DRAFT` status
+- `PUT /api/admin/problems/:problemId` — Update problem statement and limits
+- `POST /api/admin/problems/:problemId/test-cases` — Add public or hidden test case
+- `PATCH /api/admin/problems/:problemId/publish` — Publish problem (validates >=1 public & >=1 hidden test cases)
+- `POST /api/admin/problems/import/codeforces` — Import problem metadata from Codeforces API
+
+### Health & Readiness (`/api`)
+- `GET /api/health` — Liveness check
+- `GET /api/ready` — Readiness check with sanitized database connectivity status
 
 ---
 
-## Real-Time Architecture
+## Real-Time Signaling & Sockets
 
-Socket.IO manages real-time signaling over authenticated WebSocket connections:
+Socket.IO handles real-time signaling over authenticated WebSocket channels:
 
-- **Presence Tracking**: Emits `room:joined` and `room:left` events, notifying room members of active participants.
-- **Collaborative Editor**: Syncs code edits via `editor:change`, updates cursor positions via `editor:cursor`, and syncs active language changes via `editor:language`.
-- **Monotonic Versioning**: Server tracks document version numbers to prevent race conditions and resolve edit conflicts.
-- **Room Chat**: Delivers real-time chat messages via `chat:message` with persistent database storage.
-- **Submissions & Notifications**: Dispatches live submission completion alerts and notifications across isolated socket channels.
+- `room:join` / `room:leave` — Presence management and member change broadcasts.
+- `editor:change` — Monotonically versioned code edits; rejects stale versions with `DOCUMENT_VERSION_CONFLICT`.
+- `editor:cursor` — Collaborator cursor coordinates for Monaco decorations.
+- `editor:language` — Language switching synchronization.
+- `message:send` / `message:delete` — Persistent room chat messaging with length and spam rate limiters.
+- `notification:new` / `notification:count` — Real-time user alert dispatch.
+- `submission:completed` — Broadcasts submission results to room members.
 
 ---
 
-## Code Execution
-
-User code is executed safely outside the API server process using Judge0:
+## Code Execution Pipeline (Judge0)
 
 ```
-Client Code Submission
+Client Code Submission (POST /api/submissions)
     │
     ▼
-CodeCollab Backend
-    │
+Express Backend Validation
+    │  - Strict language allowlist (cpp, javascript, python)
+    │  - 64 KB code & stdin size limit
+    │  - Problem publication & test case verification
     ▼
-Judge0 Sandbox API (https://ce.judge0.com)
-    │  - Isolated container execution
-    │  - Runtime & memory limits
-    │  - Multi-language support (C++, Python, JS)
+Judge0 Sandbox API (Base64 Encoded)
+    │  - Isolated cgroup container
+    │  - CPU & memory resource limits
+    │  - Base64 response decoding & 10 KB output truncation
     ▼
-Execution Result & Test Case Comparison
-    │
+Test Case Evaluation & Scoring
+    │  - Public test case feedback
+    │  - Hidden test case evaluation (strictly isolated from client)
     ▼
-Submission Recorded in PostgreSQL
-    │
+PostgreSQL Transaction & Notification
+    │  - Submission status recorded
+    │  - Solved count incremented on ACCEPTED
     ▼
-Real-Time Result Dispatched to Client
+Socket.IO Event Broadcast to Room
 ```
-
----
-
-## Roadmap
-
-Planned future features and enhancements:
-
-- **Cloud Deployment Infrastructure**: Automated deployment manifests for AWS / Cloud infrastructure.
-- **Redis Socket.IO Adapter**: Horizontal scaling across multi-node server clusters using Redis Pub/Sub.
-- **OAuth 2.0 Integration**: Third-party authentication via GitHub and Google.
-- **Expanded Language Runtimes**: Added support for Rust, Go, and Java execution environments.
-- **Contest & Match Mode**: Timed competitive programming tournaments with live scoreboards.
-- **Editorials & Discussion Boards**: Problem discussion forums and official solution walk-throughs.
-- **AI-Assisted Coding**: Opt-in AI code explanations and hint generation.
-- **WebRTC Integration**: Peer-to-peer audio and video communication channels inside rooms.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please follow these steps:
-
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Verify tests and linting (`npm run type-check && npm run lint`)
+4. Verify tests and linting (`npm test && npm run lint`)
 5. Push to the branch (`git push origin feature/amazing-feature`)
 6. Open a Pull Request
 
 ---
 
-## What I Built
-
-Engineering highlights of the CodeCollab implementation:
-
-- **Monorepo Architecture**: Clean separation of packages (`@codecollab/web`, `@codecollab/server`, `@codecollab/shared`) with TypeScript shared contracts.
-- **Real-Time Synchronization**: Robust Socket.IO implementation featuring versioned document state management and presence tracking.
-- **Database & Query Design**: PostgreSQL relational schema designed with Prisma ORM, featuring index optimizations for real-time lookups.
-- **Sandboxed Execution Pipeline**: Multi-language code execution engine integrated with Judge0 API, evaluating both sample and hidden test cases.
-- **Security Engineering**: Server-side RBAC enforcement, database-backed role authorization, request correlation tracing, rate limiting, and sensitive data sanitization.
-- **Production DevOps**: Multi-stage Docker container builds, Nginx reverse proxy configuration, and GitHub Actions CI automation.
-
----
-
 ## License
 
-License information will be added separately.
+This project is licensed under the MIT License.

@@ -65,19 +65,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://codecollab_user:codecollab_dev_pass@localhost:5432/codecollab_db?schema=public
           JWT_SECRET: ci_test_super_secret_jwt_key_at_least_32_chars_long!
+          JWT_REFRESH_SECRET: ci_test_super_secret_jwt_refresh_key_32_chars!
           NODE_ENV: test
           PORT: 5000
           CORS_ORIGIN: http://localhost:5173
         run: |
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-db.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-auth.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-socket.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-editor.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-submission.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-chat.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-notifications.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-analytics.ts
-          npx ts-node -r dotenv/config --cwd apps/server src/scripts/verify-security.ts
+          npm run test:all
 
   docker-build:
     name: Validate Multi-Stage Docker Builds

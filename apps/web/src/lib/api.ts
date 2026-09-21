@@ -17,19 +17,25 @@ import {
 
 import { disconnectSocket } from './socket';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+export const API_BASE_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env?.['VITE_API_BASE_URL']) ||
+  'http://localhost:5000/api';
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('codecollab_token');
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('codecollab_token') : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export function checkResponseStatus(res: Response): void {
   if (res.status === 401) {
-    localStorage.removeItem('codecollab_token');
-    localStorage.removeItem('codecollab_refresh_token');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('codecollab_token');
+      localStorage.removeItem('codecollab_refresh_token');
+    }
     disconnectSocket();
-    window.dispatchEvent(new Event('auth:unauthorized'));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
   }
 }
 

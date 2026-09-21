@@ -215,16 +215,109 @@ export const RoomPage: React.FC = () => {
   useEffect(() => {
     if (!token || !roomId) return;
 
-    let socketInstance: ReturnType<typeof connectSocket>;
+    let socketInstance: ReturnType<typeof connectSocket> | null = null;
+
+    const handleConnect = () => {
+      setIsConnected(true);
+      if (socketInstance) {
+        socketInstance.emit(SOCKET_EVENTS.ROOM_JOIN, { roomId });
+      }
+    };
+
+    const handleRoomState = (payload: RoomStatePayload) => {
+      if (payload.roomId === roomId) {
+        setOnlineUsers(payload.users);
+      }
+    };
+
+    const handleRoomUserJoined = (payload: RoomUserJoinedPayload) => {
+      if (payload.roomId === roomId) {
+        setOnlineUsers((prev) => {
+          const exists = prev.some((u) => u.userId === payload.user.userId);
+          if (exists) return prev;
+          return [...prev, payload.user];
+        });
+        addToast(`${payload.user.username} joined the room`, 'info');
+      }
+    };
+
+    const handleRoomUserLeft = (payload: RoomUserLeftPayload) => {
+      if (payload.roomId === roomId) {
+        setOnlineUsers((prev) => prev.filter((u) => u.userId !== payload.user.userId));
+        setUserCursors((prev) => {
+          const updated = { ...prev };
+          delete updated[payload.user.userId];
+          return updated;
+        });
+        addToast(`${payload.user.username} left the room`, 'info');
+      }
+    };
+
+    const handleDocumentState = (payload: DocumentStatePayload) => {
+      if (payload.roomId === roomId) {
+        isRemoteChangeRef.current = true;
+        setCodeContent(payload.document.content);
+        setLanguage(payload.document.language);
+        setDocumentVersion(payload.document.version);
+        setSyncStatus('Synced');
+      }
+    };
+
+    const handleSocketEditorChange = (payload: EditorChangePayload) => {
+      if (payload.roomId === roomId) {
+        isRemoteChangeRef.current = true;
+        setCodeContent(payload.content);
+        setDocumentVersion(payload.version);
+        setSyncStatus('Synced');
+      }
+    };
+
+    const handleEditorCursor = (payload: EditorCursorPayload) => {
+      if (payload.roomId === roomId && payload.user) {
+        setUserCursors((prev) => ({
+          ...prev,
+          [payload.user.userId]: payload.position,
+        }));
+      }
+    };
+
+    const handleEditorLanguage = (payload: EditorLanguagePayload) => {
+      if (payload.roomId === roomId) {
+        setLanguage(payload.language);
+      }
+    };
+
+    const handleSubmissionCompleted = (payload: SubmissionCompletedPayload) => {
+      if (payload.roomId === roomId) {
+        const isAccepted = payload.status === 'ACCEPTED';
+        addToast(
+          `${payload.user.username} submitted solution: ${payload.status} (${payload.passedTestCases || 0}/${payload.totalTestCases || 0} passed)`,
+          isAccepted ? 'success' : 'warning'
+        );
+      }
+    };
+
+    const handleSocketError = (payload: SocketErrorPayload) => {
+      if (payload.code === 'DOCUMENT_VERSION_CONFLICT') {
+        setSyncStatus('Error');
+        fetchDocument(roomId).then((doc) => {
+          isRemoteChangeRef.current = true;
+          setCodeContent(doc.content);
+          setDocumentVersion(doc.version);
+          setSyncStatus('Synced');
+        });
+      } else {
+        setErrorMsg(`[${payload.code}] ${payload.message}`);
+      }
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
 
     try {
       socketInstance = connectSocket(token);
       socketRef.current = socketInstance;
-
-      const handleConnect = () => {
-        setIsConnected(true);
-        socketInstance.emit(SOCKET_EVENTS.ROOM_JOIN, { roomId });
-      };
 
       if (socketInstance.connected) {
         handleConnect();
@@ -232,106 +325,38 @@ export const RoomPage: React.FC = () => {
         socketInstance.on('connect', handleConnect);
       }
 
-      // Socket Event Listeners
-      socketInstance.on(SOCKET_EVENTS.ROOM_STATE, (payload: RoomStatePayload) => {
-        if (payload.roomId === roomId) {
-          setOnlineUsers(payload.users);
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.ROOM_USER_JOINED, (payload: RoomUserJoinedPayload) => {
-        if (payload.roomId === roomId) {
-          setOnlineUsers((prev) => {
-            const exists = prev.some((u) => u.userId === payload.user.userId);
-            if (exists) return prev;
-            return [...prev, payload.user];
-          });
-          addToast(`${payload.user.username} joined the room`, 'info');
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.ROOM_USER_LEFT, (payload: RoomUserLeftPayload) => {
-        if (payload.roomId === roomId) {
-          setOnlineUsers((prev) => prev.filter((u) => u.userId !== payload.user.userId));
-          setUserCursors((prev) => {
-            const updated = { ...prev };
-            delete updated[payload.user.userId];
-            return updated;
-          });
-          addToast(`${payload.user.username} left the room`, 'info');
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.DOCUMENT_STATE, (payload: DocumentStatePayload) => {
-        if (payload.roomId === roomId) {
-          isRemoteChangeRef.current = true;
-          setCodeContent(payload.document.content);
-          setLanguage(payload.document.language);
-          setDocumentVersion(payload.document.version);
-          setSyncStatus('Synced');
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.EDITOR_CHANGE, (payload: EditorChangePayload) => {
-        if (payload.roomId === roomId) {
-          isRemoteChangeRef.current = true;
-          setCodeContent(payload.content);
-          setDocumentVersion(payload.version);
-          setSyncStatus('Synced');
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.EDITOR_CURSOR, (payload: EditorCursorPayload) => {
-        if (payload.roomId === roomId && payload.user) {
-          setUserCursors((prev) => ({
-            ...prev,
-            [payload.user.userId]: payload.position,
-          }));
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.EDITOR_LANGUAGE, (payload: EditorLanguagePayload) => {
-        if (payload.roomId === roomId) {
-          setLanguage(payload.language);
-        }
-      });
-
-      // Real-Time Room Submission Notification
-      socketInstance.on(SOCKET_EVENTS.SUBMISSION_COMPLETED, (payload: SubmissionCompletedPayload) => {
-        if (payload.roomId === roomId) {
-          const isAccepted = payload.status === 'ACCEPTED';
-          addToast(
-            `${payload.user.username} submitted solution: ${payload.status} (${payload.passedTestCases || 0}/${payload.totalTestCases || 0} passed)`,
-            isAccepted ? 'success' : 'warning'
-          );
-        }
-      });
-
-      socketInstance.on(SOCKET_EVENTS.ERROR, (payload: SocketErrorPayload) => {
-        if (payload.code === 'DOCUMENT_VERSION_CONFLICT') {
-          setSyncStatus('Error');
-          fetchDocument(roomId).then((doc) => {
-            isRemoteChangeRef.current = true;
-            setCodeContent(doc.content);
-            setDocumentVersion(doc.version);
-            setSyncStatus('Synced');
-          });
-        } else {
-          setErrorMsg(`[${payload.code}] ${payload.message}`);
-        }
-      });
-
-      socketInstance.on('disconnect', () => {
-        setIsConnected(false);
-      });
+      socketInstance.on(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
+      socketInstance.on(SOCKET_EVENTS.ROOM_USER_JOINED, handleRoomUserJoined);
+      socketInstance.on(SOCKET_EVENTS.ROOM_USER_LEFT, handleRoomUserLeft);
+      socketInstance.on(SOCKET_EVENTS.DOCUMENT_STATE, handleDocumentState);
+      socketInstance.on(SOCKET_EVENTS.EDITOR_CHANGE, handleSocketEditorChange);
+      socketInstance.on(SOCKET_EVENTS.EDITOR_CURSOR, handleEditorCursor);
+      socketInstance.on(SOCKET_EVENTS.EDITOR_LANGUAGE, handleEditorLanguage);
+      socketInstance.on(SOCKET_EVENTS.SUBMISSION_COMPLETED, handleSubmissionCompleted);
+      socketInstance.on(SOCKET_EVENTS.ERROR, handleSocketError);
+      socketInstance.on('disconnect', handleDisconnect);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);
     }
 
     return () => {
-      if (socketInstance && socketInstance.connected) {
-        socketInstance.emit(SOCKET_EVENTS.ROOM_LEAVE, { roomId });
+      if (socketInstance) {
+        socketInstance.off('connect', handleConnect);
+        socketInstance.off(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
+        socketInstance.off(SOCKET_EVENTS.ROOM_USER_JOINED, handleRoomUserJoined);
+        socketInstance.off(SOCKET_EVENTS.ROOM_USER_LEFT, handleRoomUserLeft);
+        socketInstance.off(SOCKET_EVENTS.DOCUMENT_STATE, handleDocumentState);
+        socketInstance.off(SOCKET_EVENTS.EDITOR_CHANGE, handleSocketEditorChange);
+        socketInstance.off(SOCKET_EVENTS.EDITOR_CURSOR, handleEditorCursor);
+        socketInstance.off(SOCKET_EVENTS.EDITOR_LANGUAGE, handleEditorLanguage);
+        socketInstance.off(SOCKET_EVENTS.SUBMISSION_COMPLETED, handleSubmissionCompleted);
+        socketInstance.off(SOCKET_EVENTS.ERROR, handleSocketError);
+        socketInstance.off('disconnect', handleDisconnect);
+
+        if (socketInstance.connected) {
+          socketInstance.emit(SOCKET_EVENTS.ROOM_LEAVE, { roomId });
+        }
       }
     };
   }, [roomId, token, addToast]);

@@ -459,11 +459,21 @@ async function runP2Verification(): Promise<void> {
       throw new Error(`Arbitrary fields in profile update were not rejected: ${JSON.stringify(arbitraryProfileRes.body)}`);
     }
 
-    const sampleRoom = await prisma.room.findFirst({ select: { id: true } });
-    if (sampleRoom) {
+    const testRoomRes = await makeRequest(
+      'POST',
+      '/api/rooms',
+      {
+        name: `p2-lang-test-${Date.now()}`,
+        isPublic: true,
+        language: 'typescript',
+      },
+      validUserAuth.token
+    );
+    const roomId = testRoomRes.body?.data?.id;
+    if (roomId) {
       const invalidLangRes = await makeRequest(
         'PATCH',
-        `/api/rooms/${sampleRoom.id}/document/language`,
+        `/api/rooms/${roomId}/document/language`,
         {
           language: 'ruby_unsupported',
         },

@@ -12,6 +12,5 @@
     "strict": true
   },
   "files": ["src/types/express.d.ts"],
-  "include": ["src/**/*"],
-  "exclude": ["src/scripts/**/*"]
+  "include": ["src/**/*"]
 }

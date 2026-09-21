@@ -15,6 +15,8 @@
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "npm run type-check --workspaces",
+    "test": "npm run test --workspace=apps/server && npm run test --workspace=apps/web",
+    "test:all": "npm run test:all --workspace=apps/server && npm run test --workspace=apps/web",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:generate": "npm run db:generate --workspace=apps/server",

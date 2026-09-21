@@ -1,10 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import http from 'http';
+import { AddressInfo } from 'net';
+import { createApp } from '../app';
 
 const prisma = new PrismaClient();
-const API_PORT = process.env['PORT'] || 5000;
-const BASE_URL = `http://localhost:${API_PORT}`;
+const app = createApp();
+let server: http.Server;
+let baseUrl: string;
 
 interface HttpResponse {
   status: number;
@@ -17,6 +20,12 @@ interface HttpResponse {
       token?: string;
       status?: string;
       problems?: Array<{ id: string }>;
+      user?: {
+        id: string;
+        username: string;
+        email: string;
+        role: string;
+      };
       [key: string]: unknown;
     };
     [key: string]: unknown;
@@ -30,7 +39,7 @@ function makeRequest(
   token?: string
 ): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, BASE_URL);
+    const url = new URL(path, baseUrl);
     const payload = body ? JSON.stringify(body) : null;
 
     const headers: Record<string, string> = {
@@ -84,6 +93,15 @@ async function verifyAdminRoleSystem() {
   let testProblemId: string | null = null;
 
   try {
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => {
+      server.listen(0, () => {
+        const address = server.address() as AddressInfo;
+        baseUrl = `http://localhost:${address.port}`;
+        resolve();
+      });
+    });
+
     const passwordHash = await bcrypt.hash('DevPassword123!', 10);
     const adminPasswordHash = await bcrypt.hash('AdminPassword123!', 10);
 
@@ -116,7 +134,7 @@ async function verifyAdminRoleSystem() {
       email: 'sarah.chen@example.com',
       password: 'DevPassword123!',
     });
-    if (userLoginRes.status !== 200 || !userLoginRes.body.data?.token) {
+    if (userLoginRes.status !== 200 || !userLoginRes.body.data?.token || !userLoginRes.body.data?.user) {
       throw new Error(`Normal user login failed: ${JSON.stringify(userLoginRes.body)}`);
     }
     const userToken = userLoginRes.body.data.token;
@@ -132,7 +150,7 @@ async function verifyAdminRoleSystem() {
       email: 'admin',
       password: 'AdminPassword123!',
     });
-    if (adminLoginRes.status !== 200 || !adminLoginRes.body.data?.token) {
+    if (adminLoginRes.status !== 200 || !adminLoginRes.body.data?.token || !adminLoginRes.body.data?.user) {
       throw new Error(`Admin user login failed: ${JSON.stringify(adminLoginRes.body)}`);
     }
     const adminToken = adminLoginRes.body.data.token;
@@ -290,6 +308,9 @@ async function verifyAdminRoleSystem() {
     console.error('❌ Role Security Verification failed:', err);
     process.exit(1);
   } finally {
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     if (testProblemId) {
       await prisma.testCase.deleteMany({ where: { problemId: testProblemId } });
       await prisma.problem.deleteMany({ where: { id: testProblemId } });
